@@ -6,6 +6,8 @@ import {
   HttpStatus,
 } from '@nestjs/common';
 
+import { AppException } from '../errors/app.exception';
+
 type ErrorResponse = {
   code: number;
   message: string;
@@ -17,6 +19,7 @@ const statusToCode: Record<number, number> = {
   [HttpStatus.BAD_REQUEST]: 1001,
   [HttpStatus.NOT_FOUND]: 2001,
   [HttpStatus.TOO_MANY_REQUESTS]: 4001,
+  [HttpStatus.PAYLOAD_TOO_LARGE]: 4101,
   [HttpStatus.INTERNAL_SERVER_ERROR]: 5000,
 };
 
@@ -39,7 +42,10 @@ export class AllExceptionsFilter implements ExceptionFilter {
         : 'internal server error';
 
     response.status(status).send({
-      code: statusToCode[status] ?? 5000,
+      code:
+        exception instanceof AppException
+          ? exception.code
+          : statusToCode[status] ?? 5000,
       message: rawMessage,
       data: null,
       requestId: request.id,

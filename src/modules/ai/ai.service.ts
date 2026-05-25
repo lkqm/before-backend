@@ -3,12 +3,12 @@ import { randomUUID } from 'node:crypto';
 import {
   BadRequestException,
   Injectable,
-  InternalServerErrorException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { AiFeature, AiUsageStatus } from '@prisma/client';
 import OpenAI from 'openai';
 
+import { AppErrorCode, AppException } from '../../common/errors/app.exception';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { QuotaService } from '../quota/quota.service';
 import { CaptionDto } from './dto/caption.dto';
@@ -101,7 +101,7 @@ export class AiService {
   }): Promise<AiResult> {
     const requestId = `req_${randomUUID()}`;
     const startedAt = Date.now();
-    const providerConfig = this.getProviderConfig();
+    const providerConfig = this.getProviderConfig('text');
 
     if (!providerConfig.apiKey) {
       await this.recordUsage({
@@ -114,7 +114,10 @@ export class AiService {
         latencyMs: Date.now() - startedAt,
         errorMessage: 'AI_API_KEY is not configured',
       });
-      throw new InternalServerErrorException('ai provider is not configured');
+      throw new AppException(
+        AppErrorCode.AiProviderNotConfigured,
+        'ai provider is not configured',
+      );
     }
 
     try {
@@ -157,7 +160,7 @@ export class AiService {
         latencyMs: Date.now() - startedAt,
         errorMessage: error instanceof Error ? error.message : 'unknown error',
       });
-      throw new InternalServerErrorException('ai provider error');
+      throw this.toAiException(error);
     }
   }
 
@@ -167,7 +170,7 @@ export class AiService {
   }): Promise<ImageRankResult> {
     const requestId = `req_${randomUUID()}`;
     const startedAt = Date.now();
-    const providerConfig = this.getProviderConfig();
+    const providerConfig = this.getProviderConfig('image');
 
     if (!providerConfig.apiKey) {
       await this.recordUsage({
@@ -180,7 +183,10 @@ export class AiService {
         latencyMs: Date.now() - startedAt,
         errorMessage: 'AI_API_KEY is not configured',
       });
-      throw new InternalServerErrorException('ai provider is not configured');
+      throw new AppException(
+        AppErrorCode.AiProviderNotConfigured,
+        'ai provider is not configured',
+      );
     }
 
     try {
@@ -255,7 +261,7 @@ export class AiService {
         latencyMs: Date.now() - startedAt,
         errorMessage: error instanceof Error ? error.message : 'unknown error',
       });
-      throw new InternalServerErrorException('ai provider error');
+      throw this.toAiException(error);
     }
   }
 
@@ -277,15 +283,23 @@ export class AiService {
     });
   }
 
-  private getProviderConfig() {
-    const provider = this.readConfig('AI_PROVIDER') ?? 'openai';
+  private getProviderConfig(kind: 'text' | 'image') {
+    const prefix = kind === 'text' ? 'TEXT_AI' : 'IMAGE_AI';
+    const provider =
+      this.readConfig(`${prefix}_PROVIDER`) ??
+      this.readConfig('AI_PROVIDER') ??
+      'openai';
     const apiKey =
-      this.readConfig('AI_API_KEY') ?? this.readConfig('OPENAI_API_KEY');
+      this.readConfig(`${prefix}_API_KEY`) ??
+      this.readConfig('AI_API_KEY') ??
+      this.readConfig('OPENAI_API_KEY');
     const model =
+      this.readConfig(`${prefix}_MODEL`) ??
       this.readConfig('AI_MODEL') ??
       this.readConfig('OPENAI_MODEL') ??
       'gpt-4.1-mini';
-    const baseURL = this.readConfig('AI_BASE_URL');
+    const baseURL =
+      this.readConfig(`${prefix}_BASE_URL`) ?? this.readConfig('AI_BASE_URL');
 
     return {
       provider,
@@ -378,7 +392,11 @@ export class AiService {
         throw new BadRequestException('image is empty');
       }
       if (buffer.length > 800 * 1024) {
-        throw new BadRequestException('image is too large');
+        throw new AppException(
+          AppErrorCode.ImageTooLarge,
+          'image is too large',
+          400,
+        );
       }
 
       return {
@@ -415,5 +433,21 @@ export class AiService {
         errorMessage: params.errorMessage?.slice(0, 500),
       },
     });
+  }
+
+  private toAiException(error: unknown) {
+    const message = error instanceof Error ? error.message : '';
+    if (
+      message.includes('invalid ai response') ||
+      message.includes('empty ai response') ||
+      message.includes('JSON')
+    ) {
+      return new AppException(
+        AppErrorCode.AiInvalidResponse,
+        'ai invalid response',
+      );
+    }
+
+    return new AppException(AppErrorCode.AiProviderError, 'ai provider error');
   }
 }

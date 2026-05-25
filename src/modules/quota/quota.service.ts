@@ -1,8 +1,10 @@
-import { HttpException, HttpStatus, Injectable } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { AiFeature } from '@prisma/client';
 
 import { PrismaService } from '../../common/prisma/prisma.service';
+import { AppErrorCode, AppException } from '../../common/errors/app.exception';
+import { getChinaDateRange } from '../../common/date';
 import { DevicesService } from '../devices/devices.service';
 
 @Injectable()
@@ -16,7 +18,7 @@ export class QuotaService {
   async getQuota(deviceId: string, feature: AiFeature) {
     await this.devicesService.findById(deviceId);
 
-    const dailyLimit = this.getDailyLimit();
+    const dailyLimit = this.getDailyLimit(feature);
     const usage = await this.prisma.quotaUsage.findUnique({
       where: {
         deviceId_feature_date: {
@@ -38,7 +40,7 @@ export class QuotaService {
   async assertAndConsume(deviceId: string, feature: AiFeature) {
     await this.devicesService.findById(deviceId);
 
-    const dailyLimit = this.getDailyLimit();
+    const dailyLimit = this.getDailyLimit(feature);
     const today = this.today();
     const usage = await this.prisma.quotaUsage.upsert({
       where: {
@@ -60,9 +62,10 @@ export class QuotaService {
     });
 
     if (usage.count > dailyLimit) {
-      throw new HttpException(
+      throw new AppException(
+        AppErrorCode.QuotaExceeded,
         'daily quota exceeded',
-        HttpStatus.TOO_MANY_REQUESTS,
+        429,
       );
     }
 
@@ -73,12 +76,26 @@ export class QuotaService {
     };
   }
 
-  private getDailyLimit() {
-    return Number(this.config.get<string>('DAILY_AI_QUOTA') ?? 10);
+  private getDailyLimit(feature: AiFeature) {
+    if (feature === AiFeature.rewrite || feature === AiFeature.caption) {
+      return this.readNumber('DAILY_TEXT_AI_QUOTA') ?? this.readNumber('DAILY_AI_QUOTA') ?? 10;
+    }
+    if (feature === AiFeature.image_rank) {
+      return this.readNumber('DAILY_IMAGE_AI_QUOTA') ?? this.readNumber('DAILY_AI_QUOTA') ?? 10;
+    }
+
+    return this.readNumber('DAILY_AI_QUOTA') ?? 10;
+  }
+
+  private readNumber(key: string) {
+    const value = this.config.get<string>(key);
+    if (!value) return undefined;
+
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : undefined;
   }
 
   private today() {
-    const now = new Date();
-    return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+    return getChinaDateRange().start;
   }
 }
