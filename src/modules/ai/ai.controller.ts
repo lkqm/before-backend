@@ -2,6 +2,7 @@ import { Body, Controller, Post } from '@nestjs/common';
 
 import { AiService } from './ai.service';
 import { CaptionDto } from './dto/caption.dto';
+import { RankImagesDto } from './dto/rank-images.dto';
 import { RewriteDto } from './dto/rewrite.dto';
 
 @Controller('ai')
@@ -16,5 +17,10 @@ export class AiController {
   @Post('caption')
   caption(@Body() dto: CaptionDto) {
     return this.aiService.caption(dto);
+  }
+
+  @Post('images/rank')
+  rankImages(@Body() dto: RankImagesDto) {
+    return this.aiService.rankImages(dto);
   }
 }
