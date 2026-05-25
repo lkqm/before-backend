@@ -1,0 +1,68 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum AiFeature {
+  ai
+  caption
+  rewrite
+}
+
+enum AiUsageStatus {
+  success
+  failed
+  blocked
+  timeout
+}
+
+model Device {
+  id          String   @id @default(cuid())
+  anonymousId String   @unique
+  openId      String?
+  platform    String?
+  appVersion  String?
+  createdAt   DateTime @default(now())
+  lastSeenAt  DateTime @updatedAt
+
+  aiUsages    AiUsage[]
+  quotaUsages QuotaUsage[]
+}
+
+model AiUsage {
+  id             String        @id @default(cuid())
+  requestId      String        @unique
+  deviceId       String
+  provider       String
+  feature        AiFeature
+  model          String
+  inputTokens    Int?
+  outputTokens   Int?
+  costEstimate   Decimal?      @db.Decimal(12, 6)
+  status         AiUsageStatus
+  latencyMs      Int?
+  errorMessage   String?
+  createdAt      DateTime      @default(now())
+
+  device Device @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+
+  @@index([deviceId, feature, createdAt])
+}
+
+model QuotaUsage {
+  id        String    @id @default(cuid())
+  deviceId  String
+  feature   AiFeature
+  date      DateTime  @db.Date
+  count     Int       @default(0)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  device Device @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+
+  @@unique([deviceId, feature, date])
+}
