@@ -24,7 +24,7 @@ enum AiUsageStatus {
 model Device {
   id          String   @id @default(cuid())
   anonymousId String   @unique
-  openId      String?
+  openId      String?  @unique
   platform    String?
   appVersion  String?
   createdAt   DateTime @default(now())

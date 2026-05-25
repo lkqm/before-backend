@@ -3,6 +3,8 @@ import { HttpException, HttpStatus } from '@nestjs/common';
 export enum AppErrorCode {
   InvalidParams = 1001,
   DeviceNotFound = 2001,
+  WechatLoginFailed = 3001,
+  WechatNotConfigured = 3002,
   QuotaExceeded = 4001,
   AiRequestInProgress = 4002,
   ImageTooLarge = 4101,
