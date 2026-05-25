@@ -4,6 +4,7 @@ export enum AppErrorCode {
   InvalidParams = 1001,
   DeviceNotFound = 2001,
   QuotaExceeded = 4001,
+  AiRequestInProgress = 4002,
   ImageTooLarge = 4101,
   AiProviderNotConfigured = 5001,
   AiProviderError = 5002,

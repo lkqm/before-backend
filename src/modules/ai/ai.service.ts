@@ -11,6 +11,7 @@ import OpenAI from 'openai';
 import { AppErrorCode, AppException } from '../../common/errors/app.exception';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { QuotaService } from '../quota/quota.service';
+import { AiLockService } from './ai-lock.service';
 import { CaptionDto } from './dto/caption.dto';
 import { RankImagesDto } from './dto/rank-images.dto';
 import { RewriteDto } from './dto/rewrite.dto';
@@ -35,62 +36,69 @@ export class AiService {
     private readonly config: ConfigService,
     private readonly prisma: PrismaService,
     private readonly quotaService: QuotaService,
+    private readonly aiLockService: AiLockService,
   ) {}
 
   async rewrite(dto: RewriteDto) {
-    const quota = await this.quotaService.assertAndConsume(
-      dto.deviceId,
-      AiFeature.ai,
-    );
-    const result = await this.runTextGeneration({
-      deviceId: dto.deviceId,
-      feature: AiFeature.rewrite,
-      systemPrompt:
-        '你是一个朋友圈文案编辑，只输出自然、日常、克制的中文朋友圈表达。不要像广告，不要像小红书，不要解释。',
-      userPrompt: `把下面这段话改写成 3 条更有朋友圈感的文案。每条尽量短，自然，不要过度抒情。\n\n${dto.text}`,
-    });
+    return this.aiLockService.runExclusive(dto.deviceId, async () => {
+      const quota = await this.quotaService.assertAndConsume(
+        dto.deviceId,
+        AiFeature.ai,
+      );
+      const result = await this.runTextGeneration({
+        deviceId: dto.deviceId,
+        feature: AiFeature.rewrite,
+        systemPrompt:
+          '你是一个朋友圈文案编辑，只输出自然、日常、克制的中文朋友圈表达。不要像广告，不要像小红书，不要解释。',
+        userPrompt: `把下面这段话改写成 3 条更有朋友圈感的文案。每条尽量短，自然，不要过度抒情。\n\n${dto.text}`,
+      });
 
-    return {
-      items: result.items,
-      quotaLeft: quota.left,
-    };
+      return {
+        items: result.items,
+        quotaLeft: quota.left,
+      };
+    });
   }
 
   async caption(dto: CaptionDto) {
-    const quota = await this.quotaService.assertAndConsume(
-      dto.deviceId,
-      AiFeature.ai,
-    );
-    const result = await this.runTextGeneration({
-      deviceId: dto.deviceId,
-      feature: AiFeature.caption,
-      systemPrompt:
-        '你是一个朋友圈文案编辑，根据用户给的场景生成自然、日常、克制的中文朋友圈表达。不要像广告，不要像作文，不要解释。',
-      userPrompt: `根据这个场景生成 3 条朋友圈文案：${dto.scene}`,
-    });
+    return this.aiLockService.runExclusive(dto.deviceId, async () => {
+      const quota = await this.quotaService.assertAndConsume(
+        dto.deviceId,
+        AiFeature.ai,
+      );
+      const result = await this.runTextGeneration({
+        deviceId: dto.deviceId,
+        feature: AiFeature.caption,
+        systemPrompt:
+          '你是一个朋友圈文案编辑，根据用户给的场景生成自然、日常、克制的中文朋友圈表达。不要像广告，不要像作文，不要解释。',
+        userPrompt: `根据这个场景生成 3 条朋友圈文案：${dto.scene}`,
+      });
 
-    return {
-      items: result.items,
-      quotaLeft: quota.left,
-    };
+      return {
+        items: result.items,
+        quotaLeft: quota.left,
+      };
+    });
   }
 
   async rankImages(dto: RankImagesDto) {
-    const images = this.decodeImages(dto);
+    return this.aiLockService.runExclusive(dto.deviceId, async () => {
+      const images = this.decodeImages(dto);
 
-    const quota = await this.quotaService.assertAndConsume(
-      dto.deviceId,
-      AiFeature.ai,
-    );
-    const result = await this.runImageRankGeneration({
-      deviceId: dto.deviceId,
-      images,
+      const quota = await this.quotaService.assertAndConsume(
+        dto.deviceId,
+        AiFeature.ai,
+      );
+      const result = await this.runImageRankGeneration({
+        deviceId: dto.deviceId,
+        images,
+      });
+
+      return {
+        ...result,
+        quotaLeft: quota.left,
+      };
     });
-
-    return {
-      ...result,
-      quotaLeft: quota.left,
-    };
   }
 
   private async runTextGeneration(params: {
