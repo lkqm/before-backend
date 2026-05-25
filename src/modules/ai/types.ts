@@ -12,3 +12,13 @@ export type ImageRankResult = {
     reason: string;
   }>;
 };
+
+export type MomentCaptionItem = {
+  style: 'natural' | 'minimal' | 'cute';
+  text: string;
+};
+
+export type MomentGenerateResult = ImageRankResult & {
+  imageSummary: string;
+  captions: MomentCaptionItem[];
+};

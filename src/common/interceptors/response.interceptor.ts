@@ -22,6 +22,19 @@ export class ResponseInterceptor<T>
     next: CallHandler<T>,
   ): Observable<WrappedResponse<T>> {
     const request = context.switchToHttp().getRequest<{ id?: string }>();
+    const response = context.switchToHttp().getResponse<{
+      statusCode?: number;
+      status?: (code: number) => unknown;
+      code?: (code: number) => unknown;
+    }>();
+
+    if (response.statusCode === 201) {
+      if (typeof response.status === 'function') {
+        response.status(200);
+      } else {
+        response.code?.(200);
+      }
+    }
 
     return next.handle().pipe(
       map((data) => ({

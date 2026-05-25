@@ -2,6 +2,7 @@ import { Body, Controller, Post } from '@nestjs/common';
 
 import { AiService } from './ai.service';
 import { CaptionDto } from './dto/caption.dto';
+import { GenerateMomentDto } from './dto/generate-moment.dto';
 import { RankImagesDto } from './dto/rank-images.dto';
 import { RewriteDto } from './dto/rewrite.dto';
 
@@ -22,5 +23,10 @@ export class AiController {
   @Post('images/rank')
   rankImages(@Body() dto: RankImagesDto) {
     return this.aiService.rankImages(dto);
+  }
+
+  @Post('moments/generate')
+  generateMoment(@Body() dto: GenerateMomentDto) {
+    return this.aiService.generateMoment(dto);
   }
 }

@@ -13,9 +13,10 @@ import { PrismaService } from '../../common/prisma/prisma.service';
 import { QuotaService } from '../quota/quota.service';
 import { AiLockService } from './ai-lock.service';
 import { CaptionDto } from './dto/caption.dto';
+import { GenerateMomentDto } from './dto/generate-moment.dto';
 import { RankImagesDto } from './dto/rank-images.dto';
 import { RewriteDto } from './dto/rewrite.dto';
-import type { ImageRankResult, UploadedImage } from './types';
+import type { ImageRankResult, MomentGenerateResult, UploadedImage } from './types';
 
 type CaptionItem = {
   style: 'natural' | 'daily' | 'minimal';
@@ -83,7 +84,7 @@ export class AiService {
 
   async rankImages(dto: RankImagesDto) {
     return this.aiLockService.runExclusive(dto.deviceId, async () => {
-      const images = this.decodeImages(dto);
+      const images = this.decodeImages(dto.images, 2);
 
       const quota = await this.quotaService.assertAndConsume(
         dto.deviceId,
@@ -92,6 +93,29 @@ export class AiService {
       const result = await this.runImageRankGeneration({
         deviceId: dto.deviceId,
         images,
+      });
+
+      return {
+        ...result,
+        quotaLeft: quota.left,
+      };
+    });
+  }
+
+  async generateMoment(dto: GenerateMomentDto) {
+    return this.aiLockService.runExclusive(dto.deviceId, async () => {
+      const images = this.decodeImages(dto.images, 1);
+
+      const quota = await this.quotaService.assertAndConsume(
+        dto.deviceId,
+        AiFeature.ai,
+      );
+      const result = await this.runMomentGeneration({
+        deviceId: dto.deviceId,
+        images,
+        userNote: dto.userNote?.trim(),
+        locationLabel: dto.locationLabel?.trim(),
+        timeLabel: dto.timeLabel?.trim(),
       });
 
       return {
@@ -273,6 +297,123 @@ export class AiService {
     }
   }
 
+  private async runMomentGeneration(params: {
+    deviceId: string;
+    images: UploadedImage[];
+    userNote?: string;
+    locationLabel?: string;
+    timeLabel?: string;
+  }): Promise<MomentGenerateResult> {
+    const requestId = `req_${randomUUID()}`;
+    const startedAt = Date.now();
+    const providerConfig = this.getProviderConfig('image');
+
+    if (!providerConfig.apiKey) {
+      await this.recordUsage({
+        requestId,
+        deviceId: params.deviceId,
+        feature: AiFeature.caption,
+        provider: providerConfig.provider,
+        model: providerConfig.model,
+        status: AiUsageStatus.failed,
+        latencyMs: Date.now() - startedAt,
+        errorMessage: 'AI_API_KEY is not configured',
+      });
+      throw new AppException(
+        AppErrorCode.AiProviderNotConfigured,
+        'ai provider is not configured',
+      );
+    }
+
+    try {
+      const contextText = [
+        params.locationLabel ? `地点：${params.locationLabel}` : '',
+        params.timeLabel ? `时间：${params.timeLabel}` : '',
+        params.userNote ? `用户想表达：${params.userNote}` : '',
+      ].filter(Boolean).join('\n') || '没有额外上下文。';
+      const content: ChatContentPart[] = [
+        {
+          type: 'text',
+          text:
+            '你是一个朋友圈发布助手。根据图片、地点、时间和用户补充，一次性完成图片排序和朋友圈文案生成。\n\n' +
+            '输出目标：\n' +
+            '1. 选出最适合作为首图的图片\n' +
+            '2. 给出推荐发布顺序\n' +
+            '3. 每张图给一句很短的排序理由\n' +
+            '4. 总结这组图片的整体场景\n' +
+            '5. 生成 3 条中文朋友圈文案：自然、简短、可爱\n\n' +
+            '文案规则：\n' +
+            '- 像真实朋友圈，不要像广告、小红书标题或作文\n' +
+            '- 不要解释，不要输出 hashtag\n' +
+            '- 可以少量 emoji，但不要堆砌\n' +
+            '- 如果用户补充了想表达的内容，要优先贴合\n\n' +
+            '排序规则：\n' +
+            '- 必须使用输入里的 imageId\n' +
+            '- orderedImageIds 必须包含全部 imageId，不能新增，不能遗漏\n' +
+            '- 单张图片时 coverImageId 和 orderedImageIds 都使用该 imageId\n' +
+            '- 不要建议删除图片\n' +
+            '- 只返回 JSON\n\n' +
+            `上下文：\n${contextText}\n\n` +
+            'JSON 格式：{"coverImageId":"imageId","orderedImageIds":["imageId"],"imageSummary":"...","reasons":[{"imageId":"imageId","reason":"主体清晰，适合作为首图"}],"captions":[{"style":"natural","text":"..."},{"style":"minimal","text":"..."},{"style":"cute","text":"..."}]}',
+        },
+      ];
+
+      params.images.forEach((image, index) => {
+        content.push({
+          type: 'text',
+          text: `图片 ${index + 1}，imageId: ${image.id}`,
+        });
+        content.push({
+          type: 'image_url',
+          image_url: {
+            url: `data:${image.mimeType};base64,${image.buffer.toString('base64')}`,
+          },
+        });
+      });
+
+      const completion = await this.createChatCompletion(providerConfig, {
+        response_format: { type: 'json_object' },
+        messages: [
+          {
+            role: 'user',
+            content,
+          },
+        ],
+      });
+      const contentText = completion.choices[0]?.message?.content;
+      const parsed = this.parseMomentGenerateResult(
+        contentText,
+        params.images.map((image) => image.id),
+      );
+
+      await this.recordUsage({
+        requestId,
+        deviceId: params.deviceId,
+        feature: AiFeature.caption,
+        provider: providerConfig.provider,
+        model: providerConfig.model,
+        status: AiUsageStatus.success,
+        latencyMs: Date.now() - startedAt,
+        inputTokens: completion.usage?.prompt_tokens,
+        outputTokens: completion.usage?.completion_tokens,
+      });
+
+      return parsed;
+    } catch (error) {
+      await this.recordUsage({
+        requestId,
+        deviceId: params.deviceId,
+        feature: AiFeature.caption,
+        provider: providerConfig.provider,
+        model: providerConfig.model,
+        status: AiUsageStatus.failed,
+        latencyMs: Date.now() - startedAt,
+        errorMessage: error instanceof Error ? error.message : 'unknown error',
+      });
+      throw this.toAiException(error);
+    }
+  }
+
   private createChatCompletion(
     providerConfig: ReturnType<AiService['getProviderConfig']>,
     params: Omit<
@@ -382,15 +523,54 @@ export class AiService {
     };
   }
 
-  private decodeImages(dto: RankImagesDto) {
-    if (dto.images.length < 2 || dto.images.length > 9) {
-      throw new BadRequestException('images must contain 2 to 9 items');
+  private parseMomentGenerateResult(
+    content: string | null | undefined,
+    imageIds: string[],
+  ): MomentGenerateResult {
+    if (!content) {
+      throw new Error('empty ai response');
     }
-    if (new Set(dto.images.map((image) => image.id)).size !== dto.images.length) {
+
+    const parsed = JSON.parse(content) as MomentGenerateResult;
+    const rankResult = this.parseImageRankResult(
+      JSON.stringify({
+        coverImageId: parsed.coverImageId,
+        orderedImageIds: parsed.orderedImageIds,
+        reasons: parsed.reasons,
+      }),
+      imageIds,
+    );
+    const validStyles = new Set(['natural', 'minimal', 'cute']);
+    const captions = Array.isArray(parsed.captions)
+      ? parsed.captions
+          .filter((item) => validStyles.has(item.style) && item.text)
+          .slice(0, 3)
+          .map((item) => ({
+            style: item.style,
+            text: String(item.text).slice(0, 120),
+          }))
+      : [];
+
+    if (captions.length === 0) {
+      throw new Error('invalid ai response');
+    }
+
+    return {
+      ...rankResult,
+      imageSummary: String(parsed.imageSummary || '').slice(0, 120),
+      captions,
+    };
+  }
+
+  private decodeImages(images: RankImagesDto['images'], minCount: 1 | 2) {
+    if (images.length < minCount || images.length > 9) {
+      throw new BadRequestException(`images must contain ${minCount} to 9 items`);
+    }
+    if (new Set(images.map((image) => image.id)).size !== images.length) {
       throw new BadRequestException('image ids must be unique');
     }
 
-    return dto.images.map((image) => {
+    return images.map((image) => {
       const base64 = image.base64.includes(',')
         ? image.base64.split(',').pop() || ''
         : image.base64;
