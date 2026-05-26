@@ -1,28 +1,28 @@
-import { Injectable } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import { AiFeature } from '@prisma/client';
+import { Injectable } from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
+import { AiFeature } from "@prisma/client";
 
-import { PrismaService } from '../../common/prisma/prisma.service';
-import { AppErrorCode, AppException } from '../../common/errors/app.exception';
-import { getChinaDateRange } from '../../common/date';
-import { DevicesService } from '../devices/devices.service';
+import { PrismaService } from "../../common/prisma/prisma.service";
+import { AppErrorCode, AppException } from "../../common/errors/app.exception";
+import { getChinaDateRange } from "../../common/date";
+import { AuthService } from "../auth/auth.service";
 
 @Injectable()
 export class QuotaService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly config: ConfigService,
-    private readonly devicesService: DevicesService,
+    private readonly authService: AuthService,
   ) {}
 
-  async getQuota(deviceId: string, feature: AiFeature) {
-    await this.devicesService.findById(deviceId);
+  async getQuota(userId: string, feature: AiFeature) {
+    await this.authService.assertUser(userId);
 
     const dailyLimit = this.getDailyLimit(feature);
     const usage = await this.prisma.quotaUsage.findUnique({
       where: {
-        deviceId_feature_date: {
-          deviceId,
+        userId_feature_date: {
+          userId,
           feature,
           date: this.today(),
         },
@@ -37,21 +37,21 @@ export class QuotaService {
     };
   }
 
-  async assertAndConsume(deviceId: string, feature: AiFeature) {
-    await this.devicesService.findById(deviceId);
+  async assertAndConsume(userId: string, feature: AiFeature) {
+    await this.authService.assertUser(userId);
 
     const dailyLimit = this.getDailyLimit(feature);
     const today = this.today();
     const usage = await this.prisma.quotaUsage.upsert({
       where: {
-        deviceId_feature_date: {
-          deviceId,
+        userId_feature_date: {
+          userId,
           feature,
           date: today,
         },
       },
       create: {
-        deviceId,
+        userId,
         feature,
         date: today,
         count: 1,
@@ -64,7 +64,7 @@ export class QuotaService {
     if (usage.count > dailyLimit) {
       throw new AppException(
         AppErrorCode.QuotaExceeded,
-        'daily quota exceeded',
+        "daily quota exceeded",
         429,
       );
     }
@@ -78,13 +78,21 @@ export class QuotaService {
 
   private getDailyLimit(feature: AiFeature) {
     if (feature === AiFeature.rewrite || feature === AiFeature.caption) {
-      return this.readNumber('DAILY_TEXT_AI_QUOTA') ?? this.readNumber('DAILY_AI_QUOTA') ?? 10;
+      return (
+        this.readNumber("DAILY_TEXT_AI_QUOTA") ??
+        this.readNumber("DAILY_AI_QUOTA") ??
+        10
+      );
     }
     if (feature === AiFeature.image_rank) {
-      return this.readNumber('DAILY_IMAGE_AI_QUOTA') ?? this.readNumber('DAILY_AI_QUOTA') ?? 10;
+      return (
+        this.readNumber("DAILY_IMAGE_AI_QUOTA") ??
+        this.readNumber("DAILY_AI_QUOTA") ??
+        10
+      );
     }
 
-    return this.readNumber('DAILY_AI_QUOTA') ?? 10;
+    return this.readNumber("DAILY_AI_QUOTA") ?? 10;
   }
 
   private readNumber(key: string) {

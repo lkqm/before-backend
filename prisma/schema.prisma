@@ -21,23 +21,30 @@ enum AiUsageStatus {
   timeout
 }
 
-model Device {
-  id          String   @id @default(cuid())
-  anonymousId String   @unique
-  openId      String?  @unique
-  platform    String?
-  appVersion  String?
-  createdAt   DateTime @default(now())
-  lastSeenAt  DateTime @updatedAt
+enum AiFeedbackResult {
+  accepted
+  dismissed
+  reverted
+}
+
+model User {
+  id        String   @id @default(cuid())
+  openId    String   @unique
+  unionId    String?  @unique
+  nickname  String?
+  avatarUrl String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   aiUsages    AiUsage[]
+  aiFeedbacks AiFeedback[]
   quotaUsages QuotaUsage[]
 }
 
 model AiUsage {
   id             String        @id @default(cuid())
   requestId      String        @unique
-  deviceId       String
+  userId         String
   provider       String
   feature        AiFeature
   model          String
@@ -49,21 +56,38 @@ model AiUsage {
   errorMessage   String?
   createdAt      DateTime      @default(now())
 
-  device Device @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  feedbacks AiFeedback[]
 
-  @@index([deviceId, feature, createdAt])
+  @@index([userId, feature, createdAt])
+}
+
+model AiFeedback {
+  id        String           @id @default(cuid())
+  userId    String
+  aiUsageId String
+  result    AiFeedbackResult
+  metadata  Json?
+  createdAt DateTime         @default(now())
+
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  aiUsage AiUsage @relation(fields: [aiUsageId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@index([aiUsageId])
+  @@index([result, createdAt])
 }
 
 model QuotaUsage {
   id        String    @id @default(cuid())
-  deviceId  String
+  userId    String
   feature   AiFeature
   date      DateTime  @db.Date
   count     Int       @default(0)
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
 
-  device Device @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  @@unique([deviceId, feature, date])
+  @@unique([userId, feature, date])
 }

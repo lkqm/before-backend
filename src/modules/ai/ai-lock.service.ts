@@ -1,25 +1,25 @@
-import { HttpStatus, Injectable } from '@nestjs/common';
+import { HttpStatus, Injectable } from "@nestjs/common";
 
-import { AppErrorCode, AppException } from '../../common/errors/app.exception';
+import { AppErrorCode, AppException } from "../../common/errors/app.exception";
 
 @Injectable()
 export class AiLockService {
-  private readonly runningDevices = new Set<string>();
+  private readonly runningUsers = new Set<string>();
 
-  async runExclusive<T>(deviceId: string, task: () => Promise<T>) {
-    if (this.runningDevices.has(deviceId)) {
+  async runExclusive<T>(userId: string, task: () => Promise<T>) {
+    if (this.runningUsers.has(userId)) {
       throw new AppException(
         AppErrorCode.AiRequestInProgress,
-        'ai request already in progress',
+        "ai request already in progress",
         HttpStatus.TOO_MANY_REQUESTS,
       );
     }
 
-    this.runningDevices.add(deviceId);
+    this.runningUsers.add(userId);
     try {
       return await task();
     } finally {
-      this.runningDevices.delete(deviceId);
+      this.runningUsers.delete(userId);
     }
   }
 }

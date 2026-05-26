@@ -1,11 +1,11 @@
-import { Module } from '@nestjs/common';
+import { Module } from "@nestjs/common";
 
-import { DevicesModule } from '../devices/devices.module';
-import { QuotaController } from './quota.controller';
-import { QuotaService } from './quota.service';
+import { AuthModule } from "../auth/auth.module";
+import { QuotaController } from "./quota.controller";
+import { QuotaService } from "./quota.service";
 
 @Module({
-  imports: [DevicesModule],
+  imports: [AuthModule],
   controllers: [QuotaController],
   providers: [QuotaService],
   exports: [QuotaService],

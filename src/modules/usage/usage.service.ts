@@ -1,8 +1,8 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
-import { AiFeature, AiUsageStatus } from '@prisma/client';
+import { BadRequestException, Injectable } from "@nestjs/common";
+import { AiFeature, AiUsageStatus } from "@prisma/client";
 
-import { PrismaService } from '../../common/prisma/prisma.service';
-import { getChinaDateRange } from '../../common/date';
+import { PrismaService } from "../../common/prisma/prisma.service";
+import { getChinaDateRange } from "../../common/date";
 
 type FeatureSummary = {
   feature: AiFeature;
@@ -47,9 +47,12 @@ export class UsageService {
       summary.outputTokens += row.outputTokens ?? 0;
 
       if (row.latencyMs !== null) {
-        const previousCount = summary.avgLatencyMs === null ? 0 : summary.total - 1;
+        const previousCount =
+          summary.avgLatencyMs === null ? 0 : summary.total - 1;
         const previousTotal = (summary.avgLatencyMs ?? 0) * previousCount;
-        summary.avgLatencyMs = Math.round((previousTotal + row.latencyMs) / (previousCount + 1));
+        summary.avgLatencyMs = Math.round(
+          (previousTotal + row.latencyMs) / (previousCount + 1),
+        );
       }
     }
 
@@ -86,7 +89,7 @@ export class UsageService {
     try {
       return getChinaDateRange(dateInput);
     } catch {
-      throw new BadRequestException('date must be YYYY-MM-DD');
+      throw new BadRequestException("date must be YYYY-MM-DD");
     }
   }
 }

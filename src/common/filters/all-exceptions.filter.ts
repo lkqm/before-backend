@@ -17,6 +17,8 @@ type ErrorResponse = {
 
 const statusToCode: Record<number, number> = {
   [HttpStatus.BAD_REQUEST]: 1001,
+  [HttpStatus.UNAUTHORIZED]: 3003,
+  [HttpStatus.FORBIDDEN]: 3004,
   [HttpStatus.NOT_FOUND]: 2001,
   [HttpStatus.TOO_MANY_REQUESTS]: 4001,
   [HttpStatus.PAYLOAD_TOO_LARGE]: 4101,
