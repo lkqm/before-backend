@@ -4,6 +4,7 @@ import {
   ExceptionFilter,
   HttpException,
   HttpStatus,
+  Logger,
 } from '@nestjs/common';
 
 import { AppException } from '../errors/app.exception';
@@ -27,12 +28,18 @@ const statusToCode: Record<number, number> = {
 
 @Catch()
 export class AllExceptionsFilter implements ExceptionFilter {
+  private readonly logger = new Logger(AllExceptionsFilter.name);
+
   catch(exception: unknown, host: ArgumentsHost) {
     const context = host.switchToHttp();
     const response = context.getResponse<{
       status: (statusCode: number) => { send: (body: ErrorResponse) => void };
     }>();
-    const request = context.getRequest<{ id?: string }>();
+    const request = context.getRequest<{
+      id?: string;
+      method?: string;
+      url?: string;
+    }>();
 
     const status =
       exception instanceof HttpException
@@ -42,6 +49,14 @@ export class AllExceptionsFilter implements ExceptionFilter {
       exception instanceof HttpException
         ? exception.message
         : 'internal server error';
+
+    if (status >= HttpStatus.INTERNAL_SERVER_ERROR) {
+      const stack = exception instanceof Error ? exception.stack : undefined;
+      this.logger.error(
+        `${request.method ?? ''} ${request.url ?? ''} ${status} ${request.id ?? ''}: ${rawMessage}`,
+        stack,
+      );
+    }
 
     response.status(status).send({
       code:

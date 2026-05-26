@@ -26,8 +26,8 @@ export class TextGenerationResponseDto {
   })
   imageSummary?: string;
 
-  @ApiProperty({ description: "当前用户今日剩余 AI 次数", example: 9 })
-  quotaLeft!: number;
+  @ApiProperty({ description: "当前用户剩余 AI 次数", example: 9 })
+  remainingCredits!: number;
 }
 
 export class ImageRankReasonDto {
@@ -60,6 +60,6 @@ export class RankImagesResponseDto {
   })
   reasons!: ImageRankReasonDto[];
 
-  @ApiProperty({ description: "当前用户今日剩余 AI 次数", example: 9 })
-  quotaLeft!: number;
+  @ApiProperty({ description: "当前用户剩余 AI 次数", example: 9 })
+  remainingCredits!: number;
 }

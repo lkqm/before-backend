@@ -4,6 +4,7 @@ import { ConfigModule } from "@nestjs/config";
 import { PrismaModule } from "./common/prisma/prisma.module";
 import { AiModule } from "./modules/ai/ai.module";
 import { AuthModule } from "./modules/auth/auth.module";
+import { BillingModule } from "./modules/billing/billing.module";
 import { HealthModule } from "./modules/health/health.module";
 import { QuotaModule } from "./modules/quota/quota.module";
 import { UsageModule } from "./modules/usage/usage.module";
@@ -14,6 +15,7 @@ import { UsageModule } from "./modules/usage/usage.module";
     PrismaModule,
     HealthModule,
     AuthModule,
+    BillingModule,
     QuotaModule,
     AiModule,
     UsageModule,

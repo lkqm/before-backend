@@ -7,7 +7,7 @@ export enum AppErrorCode {
   WechatNotConfigured = 3002,
   Unauthorized = 3003,
   Forbidden = 3004,
-  QuotaExceeded = 4001,
+  AiCreditExhausted = 4001,
   AiRequestInProgress = 4002,
   ImageTooLarge = 4101,
   AiProviderNotConfigured = 5001,

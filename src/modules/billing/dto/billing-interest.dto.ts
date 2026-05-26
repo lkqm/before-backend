@@ -1,0 +1,45 @@
+import { ApiProperty } from "@nestjs/swagger";
+import { AiFeature } from "@prisma/client";
+import { IsIn, IsInt, IsObject, IsOptional, Min } from "class-validator";
+
+export const billingInterestFeatures = [
+  AiFeature.rewrite,
+  AiFeature.caption,
+  AiFeature.image_rank,
+] as const;
+
+export type BillingInterestFeature = (typeof billingInterestFeatures)[number];
+
+export class BillingInterestDto {
+  @ApiProperty({
+    description: "触发开通意愿的 AI 功能",
+    enum: billingInterestFeatures,
+    example: "rewrite",
+  })
+  @IsIn(billingInterestFeatures)
+  feature!: BillingInterestFeature;
+
+  @ApiProperty({
+    description: "触发时剩余 AI 次数",
+    required: false,
+    example: 0,
+  })
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  remainingCredits?: number;
+
+  @ApiProperty({
+    description: "业务附加信息，例如图片数量、文案长度、是否有位置",
+    required: false,
+    example: { imageCount: 3, textLength: 12 },
+  })
+  @IsOptional()
+  @IsObject()
+  metadata?: Record<string, unknown>;
+}
+
+export class BillingInterestResponseDto {
+  @ApiProperty({ description: "开通意愿记录 ID", example: "cmplxxx" })
+  id!: string;
+}

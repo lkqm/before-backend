@@ -1,5 +1,4 @@
 import { Controller, Get, UseGuards } from "@nestjs/common";
-import { AiFeature } from "@prisma/client";
 import {
   ApiBearerAuth,
   ApiExtraModels,
@@ -28,7 +27,7 @@ export class QuotaController {
 
   @ApiOperation({
     summary: "查询 AI 额度",
-    description: "查询当前登录用户当天共享 AI 额度。日期按中国时区计算。",
+    description: "查询当前登录用户 AI 体验次数余额。",
   })
   @ApiWrappedOkResponse("查询成功", QuotaResponseDto)
   @ApiUnauthorizedResponse({
@@ -37,6 +36,6 @@ export class QuotaController {
   })
   @Get()
   async getQuota(@CurrentUserId() userId: string) {
-    return this.quotaService.getQuota(userId, AiFeature.ai);
+    return this.quotaService.getQuota(userId);
   }
 }

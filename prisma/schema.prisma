@@ -38,7 +38,9 @@ model User {
 
   aiUsages    AiUsage[]
   aiFeedbacks AiFeedback[]
-  quotaUsages QuotaUsage[]
+  aiCreditAccount AiCreditAccount?
+  aiCreditLedgers AiCreditLedger[]
+  billingInterests BillingInterest[]
 }
 
 model AiUsage {
@@ -78,16 +80,44 @@ model AiFeedback {
   @@unique([aiUsageId])
 }
 
-model QuotaUsage {
-  id        String    @id @default(cuid())
+model AiCreditAccount {
+  userId    String   @id
+  balance   Int      @default(0)
+  totalAdded Int     @default(0)
+  totalUsed  Int     @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model AiCreditLedger {
+  id        String     @id @default(cuid())
   userId    String
-  feature   AiFeature
-  date      DateTime  @db.Date
-  count     Int       @default(0)
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
+  delta     Int
+  balance   Int
+  reason    String
+  dedupeKey String?    @unique
+  feature   AiFeature?
+  aiUsageId String?
+  metadata  Json?
+  createdAt DateTime   @default(now())
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  @@unique([userId, feature, date])
+  @@index([userId, createdAt])
+}
+
+model BillingInterest {
+  id               String   @id @default(cuid())
+  userId           String
+  feature          AiFeature
+  remainingCredits Int?
+  metadata         Json?
+  createdAt        DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@index([feature, createdAt])
 }

@@ -42,7 +42,7 @@ export class AiService {
     return this.aiLockService.runExclusive(userId, async () => {
       const quota = await this.quotaService.assertAndConsume(
         userId,
-        AiFeature.ai,
+        AiFeature.rewrite,
       );
       const result = await this.runTextGeneration({
         userId,
@@ -55,7 +55,7 @@ export class AiService {
       return {
         aiUsageId: result.aiUsageId,
         items: result.items,
-        quotaLeft: quota.left,
+        remainingCredits: quota.balance,
       };
     });
   }
@@ -70,7 +70,7 @@ export class AiService {
 
       const quota = await this.quotaService.assertAndConsume(
         userId,
-        AiFeature.ai,
+        AiFeature.caption,
       );
       const result = hasImages
         ? await this.runImageCaptionGeneration({
@@ -91,7 +91,7 @@ export class AiService {
 
       return {
         ...result,
-        quotaLeft: quota.left,
+        remainingCredits: quota.balance,
       };
     });
   }
@@ -102,7 +102,7 @@ export class AiService {
 
       const quota = await this.quotaService.assertAndConsume(
         userId,
-        AiFeature.ai,
+        AiFeature.image_rank,
       );
       const result = await this.runImageRankGeneration({
         userId,
@@ -111,7 +111,7 @@ export class AiService {
 
       return {
         ...result,
-        quotaLeft: quota.left,
+        remainingCredits: quota.balance,
       };
     });
   }

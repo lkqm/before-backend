@@ -1,109 +1,131 @@
-import { Injectable } from "@nestjs/common";
-import { ConfigService } from "@nestjs/config";
-import { AiFeature } from "@prisma/client";
+import { HttpStatus, Injectable } from "@nestjs/common";
+import { AiFeature, Prisma } from "@prisma/client";
 
 import { PrismaService } from "../../common/prisma/prisma.service";
 import { AppErrorCode, AppException } from "../../common/errors/app.exception";
-import { getChinaDateRange } from "../../common/date";
 import { AuthService } from "../auth/auth.service";
+
+const SIGNUP_AI_CREDITS = 10;
 
 @Injectable()
 export class QuotaService {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly config: ConfigService,
     private readonly authService: AuthService,
   ) {}
 
-  async getQuota(userId: string, feature: AiFeature) {
+  async getQuota(userId: string) {
     await this.authService.assertUser(userId);
 
-    const dailyLimit = this.getDailyLimit(feature);
-    const usage = await this.prisma.quotaUsage.findUnique({
-      where: {
-        userId_feature_date: {
-          userId,
-          feature,
-          date: this.today(),
-        },
-      },
-    });
-    const used = usage?.count ?? 0;
-
-    return {
-      dailyLimit,
-      used,
-      left: Math.max(dailyLimit - used, 0),
-    };
+    const account = await this.ensureAccount(userId);
+    return this.toQuotaResponse(account);
   }
 
   async assertAndConsume(userId: string, feature: AiFeature) {
     await this.authService.assertUser(userId);
 
-    const dailyLimit = this.getDailyLimit(feature);
-    const today = this.today();
-    const usage = await this.prisma.quotaUsage.upsert({
-      where: {
-        userId_feature_date: {
+    return this.prisma.$transaction(async (tx) => {
+      await this.ensureSignupGrant(userId, tx);
+
+      const consumeResult = await tx.aiCreditAccount.updateMany({
+        where: {
           userId,
-          feature,
-          date: today,
+          balance: { gt: 0 },
         },
-      },
+        data: {
+          balance: { decrement: 1 },
+          totalUsed: { increment: 1 },
+        },
+      });
+
+      if (consumeResult.count === 0) {
+        throw new AppException(
+          AppErrorCode.AiCreditExhausted,
+          "ai credits exhausted",
+          HttpStatus.TOO_MANY_REQUESTS,
+        );
+      }
+
+      const updated = await tx.aiCreditAccount.findUniqueOrThrow({
+        where: { userId },
+      });
+
+      await tx.aiCreditLedger.create({
+        data: {
+          userId,
+          delta: -1,
+          balance: updated.balance,
+          reason: "ai_consume",
+          feature,
+        },
+      });
+
+      return this.toQuotaResponse(updated);
+    });
+  }
+
+  private async ensureAccount(userId: string) {
+    const existing = await this.prisma.aiCreditAccount.findUnique({
+      where: { userId },
+    });
+    if (existing) return existing;
+
+    return this.prisma.$transaction(async (tx) => {
+      return this.ensureSignupGrant(userId, tx);
+    });
+  }
+
+  private async ensureSignupGrant(
+    userId: string,
+    tx: Prisma.TransactionClient,
+  ) {
+    const account = await tx.aiCreditAccount.upsert({
+      where: { userId },
       create: {
         userId,
-        feature,
-        date: today,
-        count: 1,
+        balance: SIGNUP_AI_CREDITS,
+        totalAdded: SIGNUP_AI_CREDITS,
       },
-      update: {
-        count: { increment: 1 },
-      },
+      update: {},
     });
 
-    if (usage.count > dailyLimit) {
-      throw new AppException(
-        AppErrorCode.QuotaExceeded,
-        "daily quota exceeded",
-        429,
-      );
+    if (account.totalAdded !== SIGNUP_AI_CREDITS || account.totalUsed !== 0) {
+      return account;
     }
 
+    const grantLedger = await tx.aiCreditLedger.findFirst({
+      where: {
+        userId,
+        reason: "signup_grant",
+      },
+      select: { id: true },
+    });
+
+    if (!grantLedger) {
+      await tx.aiCreditLedger.createMany({
+        data: [{
+          userId,
+          delta: SIGNUP_AI_CREDITS,
+          balance: account.balance,
+          reason: "signup_grant",
+          dedupeKey: `signup_grant:${userId}`,
+        }],
+        skipDuplicates: true,
+      });
+    }
+
+    return account;
+  }
+
+  private toQuotaResponse(account: {
+    balance: number;
+    totalAdded: number;
+    totalUsed: number;
+  }) {
     return {
-      dailyLimit,
-      used: usage.count,
-      left: Math.max(dailyLimit - usage.count, 0),
+      balance: account.balance,
+      totalAdded: account.totalAdded,
+      totalUsed: account.totalUsed,
     };
-  }
-
-  private getDailyLimit(feature: AiFeature) {
-    if (feature === AiFeature.rewrite || feature === AiFeature.caption) {
-      return (
-        this.readNumber("DAILY_TEXT_AI_QUOTA") ??
-        this.readNumber("DAILY_AI_QUOTA") ??
-        10
-      );
-    }
-    if (feature === AiFeature.image_rank) {
-      return (
-        this.readNumber("DAILY_IMAGE_AI_QUOTA") ??
-        this.readNumber("DAILY_AI_QUOTA") ??
-        10
-      );
-    }
-
-    return this.readNumber("DAILY_AI_QUOTA") ?? 10;
-  }
-
-  private readNumber(key: string) {
-    const value = this.config.get<string>(key);
-    if (!value) return undefined;
-
-    const parsed = Number(value);
-    return Number.isFinite(parsed) ? parsed : undefined;
-  }
-
-  private today() {
-    return getChinaDateRange().start;
   }
 }
