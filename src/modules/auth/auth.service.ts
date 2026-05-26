@@ -1,6 +1,6 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 
-import { HttpStatus, Injectable } from "@nestjs/common";
+import { HttpStatus, Injectable, Logger } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 
 import { AppErrorCode, AppException } from "../../common/errors/app.exception";
@@ -17,6 +17,8 @@ type WechatSessionResponse = {
 
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger(AuthService.name);
+
   constructor(
     private readonly config: ConfigService,
     private readonly prisma: PrismaService,
@@ -104,7 +106,28 @@ export class AuthService {
     url.searchParams.set("js_code", code);
     url.searchParams.set("grant_type", "authorization_code");
 
-    const response = await fetch(url);
+    let response: Response;
+    try {
+      response = await fetch(url, {
+        signal: AbortSignal.timeout(8000),
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      const cause =
+        error instanceof Error && "cause" in error
+          ? String((error as Error & { cause?: unknown }).cause)
+          : "";
+      this.logger.error(
+        `wechat jscode2session request failed: ${message}${cause ? `; cause=${cause}` : ""}`,
+        error instanceof Error ? error.stack : undefined,
+      );
+      throw new AppException(
+        AppErrorCode.WechatLoginFailed,
+        "wechat login request failed",
+        HttpStatus.BAD_GATEWAY,
+      );
+    }
+
     const data = (await response.json()) as WechatSessionResponse;
     if (!response.ok || !data.openid) {
       throw new AppException(
@@ -143,11 +166,17 @@ export class AuthService {
   }
 
   private getTokenSecret() {
-    return (
-      this.readConfig("AUTH_TOKEN_SECRET") ??
-      this.readConfig("WECHAT_APP_SECRET") ??
-      "dev-auth-token-secret"
-    );
+    const configuredSecret = this.readConfig("AUTH_TOKEN_SECRET");
+    if (configuredSecret) return configuredSecret;
+
+    if (this.readConfig("APP_ENV") === "prod") {
+      throw new AppException(
+        AppErrorCode.WechatNotConfigured,
+        "auth token secret is not configured",
+      );
+    }
+
+    return this.readConfig("WECHAT_APP_SECRET") ?? "dev-auth-token-secret";
   }
 
   private isSafeEqual(value: string, expected: string) {

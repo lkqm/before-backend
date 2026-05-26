@@ -1,0 +1,11 @@
+.git
+.env
+.env.*
+node_modules
+dist
+coverage
+*.log
+*.tsbuildinfo
+Dockerfile
+docker-compose.yml
+README.md

@@ -1,17 +1,19 @@
 import { HttpStatus, Injectable } from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
 import { AiFeature, Prisma } from "@prisma/client";
 
 import { PrismaService } from "../../common/prisma/prisma.service";
 import { AppErrorCode, AppException } from "../../common/errors/app.exception";
 import { AuthService } from "../auth/auth.service";
 
-const SIGNUP_AI_CREDITS = 10;
+const DEFAULT_SIGNUP_AI_CREDITS = 10;
 
 @Injectable()
 export class QuotaService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly authService: AuthService,
+    private readonly config: ConfigService,
   ) {}
 
   async getQuota(userId: string) {
@@ -83,13 +85,13 @@ export class QuotaService {
       where: { userId },
       create: {
         userId,
-        balance: SIGNUP_AI_CREDITS,
-        totalAdded: SIGNUP_AI_CREDITS,
+        balance: this.signupAiCredits,
+        totalAdded: this.signupAiCredits,
       },
       update: {},
     });
 
-    if (account.totalAdded !== SIGNUP_AI_CREDITS || account.totalUsed !== 0) {
+    if (account.totalAdded !== this.signupAiCredits || account.totalUsed !== 0) {
       return account;
     }
 
@@ -105,7 +107,7 @@ export class QuotaService {
       await tx.aiCreditLedger.createMany({
         data: [{
           userId,
-          delta: SIGNUP_AI_CREDITS,
+          delta: this.signupAiCredits,
           balance: account.balance,
           reason: "signup_grant",
           dedupeKey: `signup_grant:${userId}`,
@@ -127,5 +129,15 @@ export class QuotaService {
       totalAdded: account.totalAdded,
       totalUsed: account.totalUsed,
     };
+  }
+
+  private get signupAiCredits() {
+    const value = this.config.get<string>("SIGNUP_AI_CREDITS");
+    if (!value) return DEFAULT_SIGNUP_AI_CREDITS;
+
+    const parsed = Number(value);
+    return Number.isInteger(parsed) && parsed >= 0
+      ? parsed
+      : DEFAULT_SIGNUP_AI_CREDITS;
   }
 }
