@@ -133,8 +133,13 @@ export class AiService {
       );
     }
 
-    const feedback = await this.prisma.aiFeedback.create({
-      data: {
+    const feedback = await this.prisma.aiFeedback.upsert({
+      where: { aiUsageId: dto.aiUsageId },
+      update: {
+        result: dto.result,
+        metadata: dto.metadata as Prisma.InputJsonValue | undefined,
+      },
+      create: {
         userId,
         aiUsageId: dto.aiUsageId,
         result: dto.result,

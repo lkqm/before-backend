@@ -80,10 +80,10 @@ CREATE INDEX "AiUsage_userId_feature_createdAt_idx" ON "AiUsage"("userId", "feat
 CREATE INDEX "AiFeedback_userId_createdAt_idx" ON "AiFeedback"("userId", "createdAt");
 
 -- CreateIndex
-CREATE INDEX "AiFeedback_aiUsageId_idx" ON "AiFeedback"("aiUsageId");
+CREATE INDEX "AiFeedback_result_createdAt_idx" ON "AiFeedback"("result", "createdAt");
 
 -- CreateIndex
-CREATE INDEX "AiFeedback_result_createdAt_idx" ON "AiFeedback"("result", "createdAt");
+CREATE UNIQUE INDEX "AiFeedback_aiUsageId_key" ON "AiFeedback"("aiUsageId");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "QuotaUsage_userId_feature_date_key" ON "QuotaUsage"("userId", "feature", "date");
