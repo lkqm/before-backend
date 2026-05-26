@@ -1,4 +1,5 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
+import { Agent as HttpsAgent, request as httpsRequest } from "node:https";
 
 import { HttpStatus, Injectable, Logger } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
@@ -13,6 +14,12 @@ type WechatSessionResponse = {
   unionid?: string;
   errcode?: number;
   errmsg?: string;
+};
+
+type WechatSessionHttpResponse = {
+  data: WechatSessionResponse;
+  ok: boolean;
+  statusCode: number;
 };
 
 @Injectable()
@@ -106,19 +113,13 @@ export class AuthService {
     url.searchParams.set("js_code", code);
     url.searchParams.set("grant_type", "authorization_code");
 
-    let response: Response;
+    let response: WechatSessionHttpResponse;
     try {
-      response = await fetch(url, {
-        signal: AbortSignal.timeout(8000),
-      });
+      response = await this.requestWechatSession(url);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      const cause =
-        error instanceof Error && "cause" in error
-          ? String((error as Error & { cause?: unknown }).cause)
-          : "";
       this.logger.error(
-        `wechat jscode2session request failed: ${message}${cause ? `; cause=${cause}` : ""}`,
+        `wechat jscode2session request failed: ${message}`,
         error instanceof Error ? error.stack : undefined,
       );
       throw new AppException(
@@ -128,19 +129,71 @@ export class AuthService {
       );
     }
 
-    const data = (await response.json()) as WechatSessionResponse;
-    if (!response.ok || !data.openid) {
+    if (!response.ok || !response.data.openid) {
       throw new AppException(
         AppErrorCode.WechatLoginFailed,
-        data.errmsg || "wechat login failed",
+        response.data.errmsg || "wechat login failed",
         HttpStatus.BAD_REQUEST,
       );
     }
 
     return {
-      openId: data.openid,
-      unionId: data.unionid,
+      openId: response.data.openid,
+      unionId: response.data.unionid,
     };
+  }
+
+  private requestWechatSession(url: URL) {
+    return new Promise<WechatSessionHttpResponse>((resolve, reject) => {
+      const rejectUnauthorized =
+        this.readConfig("WECHAT_TLS_REJECT_UNAUTHORIZED") !== "false";
+
+      if (!rejectUnauthorized) {
+        this.logger.warn(
+          "WECHAT_TLS_REJECT_UNAUTHORIZED=false is enabled for jscode2session",
+        );
+      }
+
+      const request = httpsRequest(
+        url,
+        {
+          agent: new HttpsAgent({ rejectUnauthorized }),
+          method: "GET",
+          timeout: 8000,
+        },
+        (response) => {
+          const chunks: Buffer[] = [];
+
+          response.on("data", (chunk: Buffer) => {
+            chunks.push(chunk);
+          });
+          response.on("end", () => {
+            const body = Buffer.concat(chunks).toString("utf8");
+            try {
+              resolve({
+                data: JSON.parse(body) as WechatSessionResponse,
+                ok:
+                  (response.statusCode ?? 500) >= 200 &&
+                  (response.statusCode ?? 500) < 300,
+                statusCode: response.statusCode ?? 500,
+              });
+            } catch {
+              reject(
+                new Error(
+                  `wechat jscode2session returned invalid json, status=${response.statusCode ?? 500}`,
+                ),
+              );
+            }
+          });
+        },
+      );
+
+      request.on("error", reject);
+      request.on("timeout", () => {
+        request.destroy(new Error("wechat jscode2session request timeout"));
+      });
+      request.end();
+    });
   }
 
   private readConfig(key: string) {
