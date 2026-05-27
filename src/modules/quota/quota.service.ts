@@ -1,10 +1,9 @@
-import { HttpStatus, Inject, Injectable } from "@nestjs/common";
-import { ConfigType } from "@nestjs/config";
+import { HttpStatus, Injectable } from "@nestjs/common";
 import { AiFeature, Prisma } from "@prisma/client";
 
 import { PrismaService } from "../../common/prisma/prisma.service";
 import { AppErrorCode, AppException } from "../../common/errors/app.exception";
-import { quotaConfig } from "../../config/configuration";
+import { appConfig } from "../../config";
 import { AuthService } from "../auth/auth.service";
 
 @Injectable()
@@ -12,8 +11,6 @@ export class QuotaService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly authService: AuthService,
-    @Inject(quotaConfig.KEY)
-    private readonly quotaConfiguration: ConfigType<typeof quotaConfig>,
   ) {}
 
   async getQuota(userId: string) {
@@ -85,14 +82,14 @@ export class QuotaService {
       where: { userId },
       create: {
         userId,
-        balance: this.quotaConfiguration.signupAiCredits,
-        totalAdded: this.quotaConfiguration.signupAiCredits,
+        balance: appConfig.quota.signupAiCredits,
+        totalAdded: appConfig.quota.signupAiCredits,
       },
       update: {},
     });
 
     if (
-      account.totalAdded !== this.quotaConfiguration.signupAiCredits ||
+      account.totalAdded !== appConfig.quota.signupAiCredits ||
       account.totalUsed !== 0
     ) {
       return account;
@@ -111,7 +108,7 @@ export class QuotaService {
         data: [
           {
             userId,
-            delta: this.quotaConfiguration.signupAiCredits,
+            delta: appConfig.quota.signupAiCredits,
             balance: account.balance,
             reason: "signup_grant",
             dedupeKey: `signup_grant:${userId}`,

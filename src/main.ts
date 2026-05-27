@@ -3,7 +3,6 @@ import "reflect-metadata";
 import { randomUUID } from "node:crypto";
 
 import { ValidationPipe } from "@nestjs/common";
-import { ConfigService, ConfigType } from "@nestjs/config";
 import { NestFactory } from "@nestjs/core";
 import { DocumentBuilder, SwaggerModule } from "@nestjs/swagger";
 import {
@@ -15,27 +14,18 @@ import helmet from "@fastify/helmet";
 
 import { AppModule } from "./app.module";
 import { AllExceptionsFilter } from "./common/filters/all-exceptions.filter";
+import { HttpLoggingInterceptor } from "./common/interceptors/http-logging.interceptor";
 import { ResponseInterceptor } from "./common/interceptors/response.interceptor";
-import {
-  aiConfig,
-  appConfig,
-  authConfig,
-  databaseConfig,
-} from "./config/configuration";
+import { appConfig } from "./config";
 
 async function bootstrap() {
   const app = await NestFactory.create<NestFastifyApplication>(
     AppModule,
     new FastifyAdapter({
-      logger: true,
       bodyLimit: 12 * 1024 * 1024,
       genReqId: () => `req_${randomUUID()}`,
     }),
   );
-  const config = app.get(ConfigService);
-  const appConfiguration =
-    config.getOrThrow<ConfigType<typeof appConfig>>("app");
-  validateRequiredConfig(config, appConfiguration);
 
   await app.register(helmet);
   await app.register(cors, { origin: true });
@@ -48,9 +38,12 @@ async function bootstrap() {
     }),
   );
   app.useGlobalFilters(new AllExceptionsFilter());
-  app.useGlobalInterceptors(new ResponseInterceptor());
+  app.useGlobalInterceptors(
+    new HttpLoggingInterceptor(),
+    new ResponseInterceptor(),
+  );
 
-  if (appConfiguration.swaggerEnabled) {
+  if (appConfig.app.swaggerEnabled) {
     const swaggerConfig = new DocumentBuilder()
       .setTitle("before-backend API")
       .setDescription("圈感小程序后端接口文档")
@@ -69,32 +62,7 @@ async function bootstrap() {
     });
   }
 
-  await app.listen(appConfiguration.port, "0.0.0.0");
-}
-
-function validateRequiredConfig(
-  config: ConfigService,
-  appConfiguration: ConfigType<typeof appConfig>,
-) {
-  const authConfiguration =
-    config.getOrThrow<ConfigType<typeof authConfig>>("auth");
-  const aiConfiguration = config.getOrThrow<ConfigType<typeof aiConfig>>("ai");
-  const databaseConfiguration =
-    config.getOrThrow<ConfigType<typeof databaseConfig>>("database");
-  const missingKeys = [
-    databaseConfiguration.url ? "" : "DATABASE_URL",
-    authConfiguration.wechat.appId ? "" : "WECHAT_APP_ID",
-    authConfiguration.wechat.appSecret ? "" : "WECHAT_APP_SECRET",
-    aiConfiguration.hasConfiguredApiKey ? "" : "AI_API_KEY",
-    aiConfiguration.hasConfiguredModel ? "" : "AI_MODEL",
-    appConfiguration.isProd && !authConfiguration.tokenSecret
-      ? "AUTH_TOKEN_SECRET"
-      : "",
-  ].filter(Boolean);
-
-  if (missingKeys.length > 0) {
-    throw new Error(`Missing required config: ${missingKeys.join(", ")}`);
-  }
+  await app.listen(appConfig.app.port, "0.0.0.0");
 }
 
 void bootstrap();

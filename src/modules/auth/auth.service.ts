@@ -1,12 +1,11 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { Agent as HttpsAgent, request as httpsRequest } from "node:https";
 
-import { HttpStatus, Inject, Injectable, Logger } from "@nestjs/common";
-import { ConfigType } from "@nestjs/config";
+import { HttpStatus, Injectable, Logger } from "@nestjs/common";
 
 import { AppErrorCode, AppException } from "../../common/errors/app.exception";
 import { PrismaService } from "../../common/prisma/prisma.service";
-import { appConfig, authConfig } from "../../config/configuration";
+import { appConfig } from "../../config";
 import { WechatLoginDto } from "./dto/wechat-login.dto";
 
 type WechatSessionResponse = {
@@ -27,13 +26,7 @@ type WechatSessionHttpResponse = {
 export class AuthService {
   private readonly logger = new Logger(AuthService.name);
 
-  constructor(
-    @Inject(authConfig.KEY)
-    private readonly authConfiguration: ConfigType<typeof authConfig>,
-    @Inject(appConfig.KEY)
-    private readonly appConfiguration: ConfigType<typeof appConfig>,
-    private readonly prisma: PrismaService,
-  ) {}
+  constructor(private readonly prisma: PrismaService) {}
 
   async wechatLogin(dto: WechatLoginDto) {
     const { openId, unionId } = await this.getWechatSession(dto.code);
@@ -102,8 +95,8 @@ export class AuthService {
   }
 
   private async getWechatSession(code: string) {
-    const appId = this.authConfiguration.wechat.appId;
-    const appSecret = this.authConfiguration.wechat.appSecret;
+    const appId = appConfig.wechat.appId;
+    const appSecret = appConfig.wechat.appSecret;
     if (!appId || !appSecret) {
       throw new AppException(
         AppErrorCode.WechatNotConfigured,
@@ -149,8 +142,7 @@ export class AuthService {
 
   private requestWechatSession(url: URL) {
     return new Promise<WechatSessionHttpResponse>((resolve, reject) => {
-      const rejectUnauthorized =
-        this.authConfiguration.wechat.tlsRejectUnauthorized;
+      const rejectUnauthorized = appConfig.wechat.tlsRejectUnauthorized;
 
       if (!rejectUnauthorized) {
         this.logger.warn(
@@ -163,7 +155,7 @@ export class AuthService {
         {
           agent: new HttpsAgent({ rejectUnauthorized }),
           method: "GET",
-          timeout: this.authConfiguration.wechat.requestTimeoutMs,
+          timeout: appConfig.wechat.requestTimeoutMs,
         },
         (response) => {
           const chunks: Buffer[] = [];
@@ -204,7 +196,7 @@ export class AuthService {
     const payload = Buffer.from(
       JSON.stringify({
         userId,
-        exp: Date.now() + this.authConfiguration.tokenTtlMs,
+        exp: Date.now() + appConfig.auth.tokenTtlMs,
       }),
     ).toString("base64url");
 
@@ -218,17 +210,17 @@ export class AuthService {
   }
 
   private getTokenSecret() {
-    const configuredSecret = this.authConfiguration.tokenSecret;
+    const configuredSecret = appConfig.auth.tokenSecret;
     if (configuredSecret) return configuredSecret;
 
-    if (this.appConfiguration.isProd) {
+    if (appConfig.app.env === "production") {
       throw new AppException(
         AppErrorCode.WechatNotConfigured,
         "auth token secret is not configured",
       );
     }
 
-    return this.authConfiguration.wechat.appSecret ?? "dev-auth-token-secret";
+    return appConfig.wechat.appSecret ?? "dev-auth-token-secret";
   }
 
   private isSafeEqual(value: string, expected: string) {

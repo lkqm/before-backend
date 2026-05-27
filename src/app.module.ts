@@ -2,7 +2,7 @@ import { Module } from "@nestjs/common";
 import { ConfigModule } from "@nestjs/config";
 
 import { PrismaModule } from "./common/prisma/prisma.module";
-import { configuration } from "./config/configuration";
+import { appConfig } from "./config";
 import { AiModule } from "./modules/ai/ai.module";
 import { AuthModule } from "./modules/auth/auth.module";
 import { BillingModule } from "./modules/billing/billing.module";
@@ -14,7 +14,8 @@ import { UsageModule } from "./modules/usage/usage.module";
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
-      load: configuration,
+      ignoreEnvVars: true,
+      load: [() => appConfig],
     }),
     PrismaModule,
     HealthModule,

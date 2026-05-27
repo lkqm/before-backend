@@ -1,0 +1,84 @@
+app:
+  port: 3000
+  swaggerEnabled: true
+
+database:
+  url: ""
+
+wechat:
+  appId: "wx112134d4c8916866"
+  appSecret: ""
+  tlsRejectUnauthorized: false
+  requestTimeoutMs: 8000
+
+auth:
+  tokenSecret: ""
+  tokenTtlMs: 2592000000
+
+quota:
+  signupAiCredits: 10
+
+ai:
+  providers:
+    doubao:
+      type: openai-compatible
+      baseUrl: https://ark.cn-beijing.volces.com/api/v3
+      apiKey: ""
+      timeoutMs: 15000
+      imageTimeoutMs: 30000
+      maxRetries: 0
+
+      models:
+        seed-mini-260215:
+          id: doubao-seed-2-0-mini-260215
+          capabilities: [text]
+          weight: 100
+          supportsJsonMode: true
+          supportsThinking: true
+
+        seed-lite-260215:
+          id: doubao-seed-2-0-lite-260215
+          capabilities: [image]
+          weight: 100
+          supportsJsonMode: true
+          supportsThinking: true
+
+        seed-mini-260428:
+          id: doubao-seed-2-0-mini-260428
+          capabilities: [text]
+          weight: 20
+          supportsJsonMode: false
+          supportsThinking: true
+          enabled: false
+
+  strategy: weighted-random
+
+  tasks:
+    rewrite:
+      mode: text
+      maxTokens: 120
+      temperature: 0.7
+      thinking: false
+      jsonMode: true
+
+    textCaption:
+      mode: text
+      maxTokens: 240
+      temperature: 0.7
+      thinking: false
+      jsonMode: true
+
+    imageCaption:
+      mode: image
+      maxImages: 4
+      maxTokens: 220
+      temperature: 0.7
+      thinking: false
+      jsonMode: true
+
+    imageRank:
+      mode: image
+      maxImages: 9
+      temperature: 0.3
+      thinking: true
+      jsonMode: true

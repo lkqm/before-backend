@@ -3,19 +3,20 @@ import { randomUUID } from "node:crypto";
 import {
   BadRequestException,
   HttpStatus,
-  Inject,
   Injectable,
   Logger,
 } from "@nestjs/common";
-import { ConfigType } from "@nestjs/config";
 import { AiFeature, AiUsageStatus, Prisma } from "@prisma/client";
 import OpenAI from "openai";
 
 import { AppErrorCode, AppException } from "../../common/errors/app.exception";
 import { PrismaService } from "../../common/prisma/prisma.service";
-import { aiConfig } from "../../config/configuration";
+import {
+  appConfig,
+  type AiTaskName,
+  type ResolvedAiCandidate,
+} from "../../config";
 import { QuotaService } from "../quota/quota.service";
-import { AiLockService } from "./ai-lock.service";
 import { CaptionDto } from "./dto/caption.dto";
 import { AiFeedbackDto } from "./dto/feedback.dto";
 import { RankImagesDto } from "./dto/rank-images.dto";
@@ -48,99 +49,86 @@ export class AiService {
   private readonly logger = new Logger(AiService.name);
 
   constructor(
-    @Inject(aiConfig.KEY)
-    private readonly aiConfiguration: ConfigType<typeof aiConfig>,
     private readonly prisma: PrismaService,
     private readonly quotaService: QuotaService,
-    private readonly aiLockService: AiLockService,
   ) {}
 
   async rewrite(userId: string, dto: RewriteDto) {
-    return this.aiLockService.runExclusive(userId, async () => {
-      const quota = await this.quotaService.assertAndConsume(
-        userId,
-        AiFeature.rewrite,
-      );
-      const result = await this.runTextGeneration({
-        userId,
-        feature: AiFeature.rewrite,
-        disableThinking: this.aiConfiguration.rewrite.disableThinking,
-        maxTokens: this.aiConfiguration.rewrite.maxTokens,
-        temperature: this.aiConfiguration.rewrite.temperature,
-        systemPrompt:
-          "你是一个朋友圈文案编辑，只输出自然、日常、克制的中文朋友圈表达。不要像广告，不要像小红书，不要解释。",
-        userPrompt: `把下面这段话改写成 3 条更有朋友圈感的文案。每条尽量短，自然，不要过度抒情。\n\n${dto.text}`,
-      });
-
-      return {
-        aiUsageId: result.aiUsageId,
-        items: result.items,
-        remainingCredits: quota.balance,
-      };
+    const quota = await this.quotaService.assertAndConsume(
+      userId,
+      AiFeature.rewrite,
+    );
+    const result = await this.runTextGeneration({
+      userId,
+      feature: AiFeature.rewrite,
+      taskName: "rewrite",
+      systemPrompt:
+        "你是一个朋友圈文案编辑，只输出自然、日常、克制的中文朋友圈表达。不要像广告，不要像小红书，不要解释。",
+      userPrompt: `把下面这段话改写成 3 条更有朋友圈感的文案。每条尽量短，自然，不要过度抒情。\n\n${dto.text}`,
     });
+
+    return {
+      aiUsageId: result.aiUsageId,
+      items: result.items,
+      remainingCredits: quota.balance,
+    };
   }
 
   async caption(userId: string, dto: CaptionDto) {
-    return this.aiLockService.runExclusive(userId, async () => {
-      const scene = dto.scene?.trim();
-      const hasImages = Boolean(dto.images?.length);
-      if (!scene && !hasImages) {
-        throw new BadRequestException("scene or images is required");
-      }
+    const scene = dto.scene?.trim();
+    const hasImages = Boolean(dto.images?.length);
+    if (!scene && !hasImages) {
+      throw new BadRequestException("scene or images is required");
+    }
 
-      const quota = await this.quotaService.assertAndConsume(
-        userId,
-        AiFeature.caption,
-      );
-      const result = hasImages
-        ? await this.runImageCaptionGeneration({
-            userId,
-            images: this.decodeImages(
-              dto.images ?? [],
-              1,
-              this.aiConfiguration.imageCaption.maxImages,
-            ),
-            scene,
-            userNote: dto.userNote?.trim(),
-            locationLabel: dto.locationLabel?.trim(),
-            timeLabel: dto.timeLabel?.trim(),
-          })
-        : await this.runTextGeneration({
-            userId,
-            feature: AiFeature.caption,
-            disableThinking: this.aiConfiguration.textCaption.disableThinking,
-            maxTokens: this.aiConfiguration.textCaption.maxTokens,
-            temperature: this.aiConfiguration.textCaption.temperature,
-            systemPrompt:
-              "你是一个朋友圈文案编辑，根据用户给的场景生成自然、日常、克制的中文朋友圈表达。不要像广告，不要像作文，不要解释。",
-            userPrompt: `根据这个场景生成 3 条朋友圈文案：${scene}`,
-          });
+    const quota = await this.quotaService.assertAndConsume(
+      userId,
+      AiFeature.caption,
+    );
+    const result = hasImages
+      ? await this.runImageCaptionGeneration({
+          userId,
+          images: this.decodeImages(
+            dto.images ?? [],
+            1,
+            appConfig.ai.tasks.imageCaption.maxImages ?? 4,
+          ),
+          scene,
+          userNote: dto.userNote?.trim(),
+          locationLabel: dto.locationLabel?.trim(),
+          timeLabel: dto.timeLabel?.trim(),
+        })
+      : await this.runTextGeneration({
+          userId,
+          feature: AiFeature.caption,
+          taskName: "textCaption",
+          systemPrompt:
+            "你是一个朋友圈文案编辑，根据用户给的场景生成自然、日常、克制的中文朋友圈表达。不要像广告，不要像作文，不要解释。",
+          userPrompt: `根据这个场景生成 3 条朋友圈文案：${scene}`,
+        });
 
-      return {
-        ...result,
-        remainingCredits: quota.balance,
-      };
-    });
+    return {
+      ...result,
+      remainingCredits: quota.balance,
+    };
   }
 
   async rankImages(userId: string, dto: RankImagesDto) {
-    return this.aiLockService.runExclusive(userId, async () => {
-      const images = this.decodeImages(dto.images, 2);
+    const images = this.decodeImages(dto.images, 2);
 
-      const quota = await this.quotaService.assertAndConsume(
-        userId,
-        AiFeature.image_rank,
-      );
-      const result = await this.runImageRankGeneration({
-        userId,
-        images,
-      });
-
-      return {
-        ...result,
-        remainingCredits: quota.balance,
-      };
+    const quota = await this.quotaService.assertAndConsume(
+      userId,
+      AiFeature.image_rank,
+    );
+    const result = await this.runImageRankGeneration({
+      userId,
+      images,
     });
+
+    return {
+      ...result,
+      remainingCredits: quota.balance,
+    };
   }
 
   async feedback(userId: string, dto: AiFeedbackDto) {
@@ -181,15 +169,14 @@ export class AiService {
   private async runTextGeneration(params: {
     userId: string;
     feature: AiFeature;
+    taskName: AiTaskName;
     systemPrompt: string;
     userPrompt: string;
-    disableThinking?: boolean;
-    maxTokens?: number;
-    temperature?: number;
   }): Promise<AiResult & { aiUsageId: string }> {
     const requestId = `req_${randomUUID()}`;
     const startedAt = Date.now();
-    const providerConfig = this.getProviderConfig("text");
+    const candidate = this.pickCandidate(params.taskName);
+    const providerConfig = this.getProviderConfig(candidate);
 
     if (!providerConfig.apiKey) {
       const usage = await this.recordUsage({
@@ -211,12 +198,14 @@ export class AiService {
     try {
       const aiRequestStartedAt = Date.now();
       const completion = await this.createChatCompletion(providerConfig, {
-        max_tokens: params.maxTokens,
-        response_format: { type: "json_object" },
-        ...(params.disableThinking
+        max_tokens: candidate.task.maxTokens,
+        ...(this.shouldUseJsonMode(candidate)
+          ? { response_format: { type: "json_object" as const } }
+          : {}),
+        ...(this.shouldDisableThinking(candidate)
           ? { thinking: { type: "disabled" as const } }
           : {}),
-        temperature: params.temperature,
+        temperature: candidate.task.temperature,
         messages: [
           { role: "system", content: params.systemPrompt },
           {
@@ -281,7 +270,8 @@ export class AiService {
   }): Promise<ImageRankResult & { aiUsageId: string }> {
     const requestId = `req_${randomUUID()}`;
     const startedAt = Date.now();
-    const providerConfig = this.getProviderConfig("image");
+    const candidate = this.pickCandidate("imageRank");
+    const providerConfig = this.getProviderConfig(candidate, "image");
 
     if (!providerConfig.apiKey) {
       const usage = await this.recordUsage({
@@ -334,7 +324,14 @@ export class AiService {
       });
 
       const completion = await this.createChatCompletion(providerConfig, {
-        response_format: { type: "json_object" },
+        max_tokens: candidate.task.maxTokens,
+        ...(this.shouldUseJsonMode(candidate)
+          ? { response_format: { type: "json_object" as const } }
+          : {}),
+        ...(this.shouldDisableThinking(candidate)
+          ? { thinking: { type: "disabled" as const } }
+          : {}),
+        temperature: candidate.task.temperature,
         messages: [
           {
             role: "user",
@@ -392,7 +389,8 @@ export class AiService {
   }): Promise<AiResult & { aiUsageId: string }> {
     const requestId = `req_${randomUUID()}`;
     const startedAt = Date.now();
-    const providerConfig = this.getProviderConfig("image");
+    const candidate = this.pickCandidate("imageCaption");
+    const providerConfig = this.getProviderConfig(candidate, "image");
 
     if (!providerConfig.apiKey) {
       const usage = await this.recordUsage({
@@ -455,12 +453,14 @@ export class AiService {
 
       const aiRequestStartedAt = Date.now();
       const completion = await this.createChatCompletion(providerConfig, {
-        ...(this.aiConfiguration.imageCaption.disableThinking
+        ...(this.shouldDisableThinking(candidate)
           ? { thinking: { type: "disabled" as const } }
           : {}),
-        max_tokens: this.aiConfiguration.imageCaption.maxTokens,
-        temperature: this.aiConfiguration.imageCaption.temperature,
-        response_format: { type: "json_object" },
+        max_tokens: candidate.task.maxTokens,
+        temperature: candidate.task.temperature,
+        ...(this.shouldUseJsonMode(candidate)
+          ? { response_format: { type: "json_object" as const } }
+          : {}),
         messages: [
           {
             role: "user",
@@ -541,8 +541,71 @@ export class AiService {
     return usage?.completion_tokens_details?.reasoning_tokens;
   }
 
-  private getProviderConfig(kind: "text" | "image") {
-    return this.aiConfiguration[kind];
+  private getProviderConfig(
+    candidate: ResolvedAiCandidate,
+    kind: "text" | "image" = "text",
+  ) {
+    return {
+      provider: candidate.providerName,
+      apiKey: candidate.provider.apiKey,
+      model: candidate.model.id,
+      baseURL: candidate.provider.baseUrl,
+      timeoutMs:
+        kind === "image"
+          ? candidate.provider.imageTimeoutMs
+          : candidate.provider.timeoutMs,
+      maxRetries: candidate.provider.maxRetries,
+    };
+  }
+
+  private pickCandidate(taskName: AiTaskName) {
+    const task = appConfig.ai.tasks[taskName];
+    const candidates: ResolvedAiCandidate[] = Object.entries(
+      appConfig.ai.providers,
+    ).flatMap(([providerName, provider]) =>
+      Object.entries(provider.models)
+        .filter(
+          ([, model]) =>
+            model.enabled !== false &&
+            model.capabilities.includes(task.mode) &&
+            provider.apiKey,
+        )
+        .map(([modelName, model]) => ({
+          providerName,
+          modelName,
+          provider,
+          model,
+          task,
+        })),
+    );
+
+    if (candidates.length === 0) {
+      throw new Error(`no ai candidate for task ${taskName}`);
+    }
+
+    const strategy = task.strategy ?? appConfig.ai.strategy;
+    if (strategy === "first-available") {
+      return candidates[0];
+    }
+
+    const totalWeight = candidates.reduce(
+      (sum, candidate) => sum + candidate.model.weight,
+      0,
+    );
+    let cursor = Math.random() * totalWeight;
+    for (const candidate of candidates) {
+      cursor -= candidate.model.weight;
+      if (cursor <= 0) return candidate;
+    }
+    return candidates[candidates.length - 1];
+  }
+
+  private shouldUseJsonMode(candidate: ResolvedAiCandidate) {
+    return candidate.task.jsonMode && candidate.model.supportsJsonMode;
+  }
+
+  private shouldDisableThinking(candidate: ResolvedAiCandidate) {
+    return !candidate.task.thinking && candidate.model.supportsThinking;
   }
 
   private parseResult(content: string | null | undefined): AiResult {

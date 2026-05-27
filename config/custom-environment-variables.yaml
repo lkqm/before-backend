@@ -1,0 +1,19 @@
+app:
+  port: PORT
+  swaggerEnabled: SWAGGER_ENABLED
+
+database:
+  url: DATABASE_URL
+
+wechat:
+  appSecret: WECHAT_APP_SECRET
+  requestTimeoutMs: WECHAT_REQUEST_TIMEOUT_MS
+
+auth:
+  tokenSecret: AUTH_TOKEN_SECRET
+  tokenTtlMs: AUTH_TOKEN_TTL_MS
+
+ai:
+  providers:
+    doubao:
+      apiKey: DOUBAO_API_KEY

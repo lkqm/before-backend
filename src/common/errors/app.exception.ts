@@ -8,7 +8,6 @@ export enum AppErrorCode {
   Unauthorized = 3003,
   Forbidden = 3004,
   AiCreditExhausted = 4001,
-  AiRequestInProgress = 4002,
   ImageTooLarge = 4101,
   AiProviderNotConfigured = 5001,
   AiProviderError = 5002,
