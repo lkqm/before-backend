@@ -64,6 +64,8 @@ export class AiService {
       taskName: "rewrite",
       systemPrompt: this.getTaskSystemPrompt("rewrite"),
       userPrompt: `请把下面这段话改写成 3 条朋友圈文案：\n\n${dto.text}`,
+      outputFormat:
+        '{"items":[{"style":"natural","text":"..."},{"style":"daily","text":"..."},{"style":"minimal","text":"..."}]}',
     });
 
     return {
@@ -74,36 +76,27 @@ export class AiService {
   }
 
   async caption(userId: string, dto: CaptionDto) {
-    const scene = dto.scene?.trim();
     const hasImages = Boolean(dto.images?.length);
-    if (!scene && !hasImages) {
-      throw new BadRequestException("scene or images is required");
+    if (!hasImages) {
+      throw new BadRequestException("images is required");
     }
 
     const quota = await this.quotaService.assertAndConsume(
       userId,
       AiFeature.caption,
     );
-    const result = hasImages
-      ? await this.runImageCaptionGeneration({
-          userId,
-          images: this.decodeImages(
-            dto.images ?? [],
-            1,
-            appConfig.ai.tasks.imageCaption.maxImages ?? 4,
-          ),
-          scene,
-          userNote: dto.userNote?.trim(),
-          locationLabel: dto.locationLabel?.trim(),
-          timeLabel: dto.timeLabel?.trim(),
-        })
-      : await this.runTextGeneration({
-          userId,
-          feature: AiFeature.caption,
-          taskName: "textCaption",
-          systemPrompt: this.getTaskSystemPrompt("textCaption"),
-          userPrompt: `根据这个场景生成 3 条朋友圈文案：${scene}`,
-        });
+    const result = await this.runImageCaptionGeneration({
+      userId,
+      images: this.decodeImages(
+        dto.images ?? [],
+        1,
+        appConfig.ai.tasks.caption.maxImages ?? 4,
+      ),
+      scene: dto.scene?.trim(),
+      userNote: dto.userNote?.trim(),
+      locationLabel: dto.locationLabel?.trim(),
+      timeLabel: dto.timeLabel?.trim(),
+    });
 
     return {
       ...result,
@@ -170,6 +163,7 @@ export class AiService {
     taskName: AiTaskName;
     systemPrompt: string;
     userPrompt: string;
+    outputFormat?: string;
   }): Promise<AiResult & { aiUsageId: string }> {
     const requestId = `req_${randomUUID()}`;
     const startedAt = Date.now();
@@ -210,7 +204,8 @@ export class AiService {
             role: "user",
             content:
               `${params.userPrompt}\n\n只返回 JSON，格式：` +
-              '{"items":[{"style":"natural","text":"..."},{"style":"daily","text":"..."},{"style":"minimal","text":"..."}]}',
+              (params.outputFormat ??
+                '{"items":[{"style":"natural","text":"..."},{"style":"daily","text":"..."},{"style":"minimal","text":"..."}]}'),
           },
         ],
       });
@@ -389,7 +384,7 @@ export class AiService {
   }): Promise<AiResult & { aiUsageId: string }> {
     const requestId = `req_${randomUUID()}`;
     const startedAt = Date.now();
-    const candidate = this.pickCandidate("imageCaption");
+    const candidate = this.pickCandidate("caption");
     const providerConfig = this.getProviderConfig(candidate, "image");
 
     if (!providerConfig.apiKey) {
@@ -429,7 +424,7 @@ export class AiService {
             "输出规则：\n" +
             "- 只返回 JSON\n\n" +
             `上下文：\n${contextText}\n\n` +
-            'JSON 格式：{"imageSummary":"...","items":[{"style":"natural","text":"..."},{"style":"minimal","text":"..."},{"style":"cute","text":"..."}]}',
+            'JSON 格式：{"imageSummary":"...","items":[{"style":"natural","text":"..."},{"style":"daily","text":"..."},{"style":"minimal","text":"..."}]}',
         },
       ];
 
@@ -459,7 +454,7 @@ export class AiService {
         messages: [
           {
             role: "system",
-            content: this.getTaskSystemPrompt("imageCaption"),
+            content: this.getTaskSystemPrompt("caption"),
           },
           {
             role: "user",
@@ -683,7 +678,7 @@ export class AiService {
     }
 
     const parsed = JSON.parse(content) as AiResult;
-    const validStyles = new Set(["natural", "minimal", "cute"]);
+    const validStyles = new Set(["natural", "daily", "minimal"]);
     const items = Array.isArray(parsed.items)
       ? parsed.items
           .filter((item) => validStyles.has(item.style) && item.text)

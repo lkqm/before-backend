@@ -15,7 +15,7 @@ import { RankImageItemDto } from "./rank-images.dto";
 
 export class CaptionDto {
   @ApiProperty({
-    description: "朋友圈场景描述。纯文字生成时必填；传图片时可作为补充上下文",
+    description: "朋友圈场景描述，可作为图片文案的补充上下文",
     required: false,
     minLength: 1,
     maxLength: 200,
@@ -28,19 +28,18 @@ export class CaptionDto {
   scene?: string;
 
   @ApiProperty({
-    description: "用于生成文案的图片列表，可选；传入时走多模态文案生成",
-    required: false,
+    description: "用于生成文案的图片列表",
+    required: true,
     minItems: 1,
     maxItems: 4,
     type: [RankImageItemDto],
   })
-  @IsOptional()
   @IsArray()
   @ArrayMinSize(1)
   @ArrayMaxSize(4)
   @ValidateNested({ each: true })
   @Type(() => RankImageItemDto)
-  images?: RankImageItemDto[];
+  images!: RankImageItemDto[];
 
   @ApiProperty({
     description: "用户想表达的补充信息，可选",

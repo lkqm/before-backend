@@ -2,8 +2,7 @@ import type { AiCapability, AiModelConfig, AppConfig } from "./types";
 
 const REQUIRED_SYSTEM_PROMPT_TASKS = new Set([
   "rewrite",
-  "textCaption",
-  "imageCaption",
+  "caption",
   "imageRank",
 ]);
 
@@ -41,6 +40,12 @@ export function validateConfig(config: AppConfig) {
       !task.systemPrompt?.trim()
     ) {
       errors.push(`ai.tasks.${taskName}.systemPrompt`);
+    }
+    if (typeof task.thinking !== "boolean") {
+      errors.push(`ai.tasks.${taskName}.thinking`);
+    }
+    if (typeof task.jsonMode !== "boolean") {
+      errors.push(`ai.tasks.${taskName}.jsonMode`);
     }
     if (
       task.temperature !== undefined &&

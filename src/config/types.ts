@@ -1,7 +1,6 @@
 export type AiTaskName =
   | "rewrite"
-  | "textCaption"
-  | "imageCaption"
+  | "caption"
   | "imageRank";
 
 export type AiCapability = "text" | "image";

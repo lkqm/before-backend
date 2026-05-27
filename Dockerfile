@@ -8,6 +8,7 @@ RUN apt-get update \
 
 COPY package.json package-lock.json ./
 COPY prisma ./prisma
+COPY config ./config
 RUN npm ci
 
 COPY tsconfig.json tsconfig.build.json nest-cli.json ./
@@ -28,6 +29,7 @@ COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/package.json ./package.json
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/prisma ./prisma
+COPY --from=builder /app/config ./config
 
 EXPOSE 3000
 
