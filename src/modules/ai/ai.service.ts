@@ -62,9 +62,8 @@ export class AiService {
       userId,
       feature: AiFeature.rewrite,
       taskName: "rewrite",
-      systemPrompt:
-        "你是一个朋友圈文案编辑，只输出自然、日常、克制的中文朋友圈表达。不要像广告，不要像小红书，不要解释。",
-      userPrompt: `把下面这段话改写成 3 条更有朋友圈感的文案。每条尽量短，自然，不要过度抒情。\n\n${dto.text}`,
+      systemPrompt: this.getTaskSystemPrompt("rewrite"),
+      userPrompt: `请把下面这段话改写成 3 条朋友圈文案：\n\n${dto.text}`,
     });
 
     return {
@@ -102,8 +101,7 @@ export class AiService {
           userId,
           feature: AiFeature.caption,
           taskName: "textCaption",
-          systemPrompt:
-            "你是一个朋友圈文案编辑，根据用户给的场景生成自然、日常、克制的中文朋友圈表达。不要像广告，不要像作文，不要解释。",
+          systemPrompt: this.getTaskSystemPrompt("textCaption"),
           userPrompt: `根据这个场景生成 3 条朋友圈文案：${scene}`,
         });
 
@@ -295,15 +293,13 @@ export class AiService {
         {
           type: "text",
           text:
-            "你是朋友圈图片排序助手。目标是让这组图片发朋友圈时第一眼更舒服。\n" +
-            "请根据每张图片的主体清晰度、构图、情绪、氛围、色彩连续性和内容重复度：\n" +
+            "请完成：\n" +
             "1. 选出最适合作为朋友圈首图的图片\n" +
             "2. 给出推荐发布顺序\n" +
             "3. 每张图给一句非常短的理由\n\n" +
-            "规则：\n" +
+            "输出规则：\n" +
             "- 必须使用输入里的 imageId\n" +
             "- orderedImageIds 必须包含全部 imageId，不能新增，不能遗漏\n" +
-            "- 不要建议删除图片\n" +
             "- 不要输出解释文字\n" +
             "- 只返回 JSON\n\n" +
             'JSON 格式：{"coverImageId":"imageId","orderedImageIds":["imageId"],"reasons":[{"imageId":"imageId","reason":"主体清晰，适合作为首图"}]}',
@@ -333,6 +329,10 @@ export class AiService {
           : {}),
         temperature: candidate.task.temperature,
         messages: [
+          {
+            role: "system",
+            content: this.getTaskSystemPrompt("imageRank"),
+          },
           {
             role: "user",
             content,
@@ -423,15 +423,10 @@ export class AiService {
         {
           type: "text",
           text:
-            "你是一个朋友圈文案助手。根据图片、场景、地点、时间和用户补充生成朋友圈文案。\n\n" +
-            "输出目标：\n" +
+            "请根据图片和上下文完成：\n" +
             "1. 用 30 个字以内总结这组图片的整体场景\n" +
-            "2. 生成 3 条中文朋友圈文案：自然、简短、可爱\n\n" +
-            "文案规则：\n" +
-            "- 像真实朋友圈，不要像广告、小红书标题或作文\n" +
-            "- 不要解释，不要输出 hashtag\n" +
-            "- 可以少量 emoji，但不要堆砌\n" +
-            "- 如果用户补充了想表达的内容，要优先贴合\n\n" +
+            "2. 生成 3 条中文朋友圈文案\n\n" +
+            "输出规则：\n" +
             "- 只返回 JSON\n\n" +
             `上下文：\n${contextText}\n\n` +
             'JSON 格式：{"imageSummary":"...","items":[{"style":"natural","text":"..."},{"style":"minimal","text":"..."},{"style":"cute","text":"..."}]}',
@@ -462,6 +457,10 @@ export class AiService {
           ? { response_format: { type: "json_object" as const } }
           : {}),
         messages: [
+          {
+            role: "system",
+            content: this.getTaskSystemPrompt("imageCaption"),
+          },
           {
             role: "user",
             content,
@@ -528,6 +527,14 @@ export class AiService {
       model: providerConfig.model,
       ...params,
     });
+  }
+
+  private getTaskSystemPrompt(taskName: AiTaskName) {
+    const systemPrompt = appConfig.ai.tasks[taskName].systemPrompt?.trim();
+    if (!systemPrompt) {
+      throw new Error(`ai task ${taskName} systemPrompt is not configured`);
+    }
+    return systemPrompt;
   }
 
   private getReasoningTokens(

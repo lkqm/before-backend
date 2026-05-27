@@ -35,6 +35,7 @@ export type AiTaskConfig = {
   maxImages?: number;
   maxTokens?: number;
   temperature?: number;
+  systemPrompt?: string;
   thinking: boolean;
   jsonMode: boolean;
 };

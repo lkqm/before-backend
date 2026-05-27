@@ -1,5 +1,12 @@
 import type { AiCapability, AiModelConfig, AppConfig } from "./types";
 
+const REQUIRED_SYSTEM_PROMPT_TASKS = new Set([
+  "rewrite",
+  "textCaption",
+  "imageCaption",
+  "imageRank",
+]);
+
 export function validateConfig(config: AppConfig) {
   const errors: string[] = [];
 
@@ -28,6 +35,12 @@ export function validateConfig(config: AppConfig) {
   for (const [taskName, task] of Object.entries(config.ai.tasks)) {
     if (!findModelsForMode(config, task.mode).length) {
       errors.push(`ai.tasks.${taskName}.mode`);
+    }
+    if (
+      REQUIRED_SYSTEM_PROMPT_TASKS.has(taskName) &&
+      !task.systemPrompt?.trim()
+    ) {
+      errors.push(`ai.tasks.${taskName}.systemPrompt`);
     }
     if (
       task.temperature !== undefined &&
