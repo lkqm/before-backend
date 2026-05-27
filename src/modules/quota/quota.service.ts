@@ -4,7 +4,7 @@ import { AiFeature, Prisma } from "@prisma/client";
 
 import { PrismaService } from "../../common/prisma/prisma.service";
 import { AppErrorCode, AppException } from "../../common/errors/app.exception";
-import quotaConfig from "../../config/quota.config";
+import { quotaConfig } from "../../config/configuration";
 import { AuthService } from "../auth/auth.service";
 
 @Injectable()

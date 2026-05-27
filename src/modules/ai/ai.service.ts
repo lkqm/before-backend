@@ -13,7 +13,7 @@ import OpenAI from "openai";
 
 import { AppErrorCode, AppException } from "../../common/errors/app.exception";
 import { PrismaService } from "../../common/prisma/prisma.service";
-import aiConfig from "../../config/ai.config";
+import { aiConfig } from "../../config/configuration";
 import { QuotaService } from "../quota/quota.service";
 import { AiLockService } from "./ai-lock.service";
 import { CaptionDto } from "./dto/caption.dto";

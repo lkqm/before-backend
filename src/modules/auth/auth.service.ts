@@ -6,8 +6,7 @@ import { ConfigType } from "@nestjs/config";
 
 import { AppErrorCode, AppException } from "../../common/errors/app.exception";
 import { PrismaService } from "../../common/prisma/prisma.service";
-import appConfig from "../../config/app.config";
-import authConfig from "../../config/auth.config";
+import { appConfig, authConfig } from "../../config/configuration";
 import { WechatLoginDto } from "./dto/wechat-login.dto";
 
 type WechatSessionResponse = {

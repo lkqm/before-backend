@@ -16,10 +16,12 @@ import helmet from "@fastify/helmet";
 import { AppModule } from "./app.module";
 import { AllExceptionsFilter } from "./common/filters/all-exceptions.filter";
 import { ResponseInterceptor } from "./common/interceptors/response.interceptor";
-import aiConfig from "./config/ai.config";
-import appConfig from "./config/app.config";
-import authConfig from "./config/auth.config";
-import databaseConfig from "./config/database.config";
+import {
+  aiConfig,
+  appConfig,
+  authConfig,
+  databaseConfig,
+} from "./config/configuration";
 
 async function bootstrap() {
   const app = await NestFactory.create<NestFastifyApplication>(
