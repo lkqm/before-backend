@@ -6,7 +6,7 @@ import {
   Injectable,
   Logger,
 } from "@nestjs/common";
-import { AiFeature, AiUsageStatus, Prisma } from "@prisma/client";
+import { Prisma } from "@prisma/client";
 import OpenAI from "openai";
 
 import { AppErrorCode, AppException } from "../../common/errors/app.exception";
@@ -17,11 +17,18 @@ import {
   type ResolvedAiCandidate,
 } from "../../config";
 import { QuotaService } from "../quota/quota.service";
+import {
+  AiFeature,
+  AiUsageStatus,
+  type AiFeature as AiFeatureType,
+  type AiUsageStatus as AiUsageStatusType,
+} from "./ai.constants";
 import { CaptionDto } from "./dto/caption.dto";
 import { AiFeedbackDto } from "./dto/feedback.dto";
+import { PickImagesDto } from "./dto/pick-images.dto";
 import { RankImagesDto } from "./dto/rank-images.dto";
 import { RewriteDto } from "./dto/rewrite.dto";
-import type { ImageRankResult, UploadedImage } from "./types";
+import type { ImageRankResult, PickImagesResult, UploadedImage } from "./types";
 
 type CaptionItem = {
   style: "natural" | "daily" | "minimal" | "cute";
@@ -122,6 +129,32 @@ export class AiService {
     };
   }
 
+  async pickImages(userId: string, dto: PickImagesDto) {
+    const images = this.decodeImages(
+      dto.images,
+      2,
+      appConfig.ai.tasks.pickImage.maxImages ?? 12,
+    );
+
+    const quota = await this.quotaService.assertAndConsume(
+      userId,
+      AiFeature.pick_image,
+    );
+    const result = await this.runPickImagesGeneration({
+      userId,
+      images,
+      originalCount: dto.originalCount,
+      userNote: dto.userNote?.trim(),
+      locationLabel: dto.locationLabel?.trim(),
+      timeLabel: dto.timeLabel?.trim(),
+    });
+
+    return {
+      ...result,
+      remainingCredits: quota.balance,
+    };
+  }
+
   async feedback(userId: string, dto: AiFeedbackDto) {
     const aiUsage = await this.prisma.aiUsage.findFirst({
       where: {
@@ -159,7 +192,7 @@ export class AiService {
 
   private async runTextGeneration(params: {
     userId: string;
-    feature: AiFeature;
+    feature: AiFeatureType;
     taskName: AiTaskName;
     systemPrompt: string;
     userPrompt: string;
@@ -364,6 +397,158 @@ export class AiService {
         requestId,
         userId: params.userId,
         feature: AiFeature.image_rank,
+        provider: providerConfig.provider,
+        model: providerConfig.model,
+        status: AiUsageStatus.failed,
+        latencyMs: Date.now() - startedAt,
+        errorMessage: error instanceof Error ? error.message : "unknown error",
+      });
+      throw this.toAiException(error);
+    }
+  }
+
+  private async runPickImagesGeneration(params: {
+    userId: string;
+    images: UploadedImage[];
+    originalCount: number;
+    userNote?: string;
+    locationLabel?: string;
+    timeLabel?: string;
+  }): Promise<PickImagesResult & { aiUsageId: string }> {
+    const requestId = `req_${randomUUID()}`;
+    const startedAt = Date.now();
+    const candidate = this.pickCandidate("pickImage");
+    const providerConfig = this.getProviderConfig(candidate, "image");
+
+    if (!providerConfig.apiKey) {
+      await this.recordUsage({
+        requestId,
+        userId: params.userId,
+        feature: AiFeature.pick_image,
+        provider: providerConfig.provider,
+        model: providerConfig.model,
+        status: AiUsageStatus.failed,
+        latencyMs: Date.now() - startedAt,
+        errorMessage: "AI_API_KEY is not configured",
+      });
+      throw new AppException(
+        AppErrorCode.AiProviderNotConfigured,
+        "ai provider is not configured",
+      );
+    }
+
+    try {
+      const contextText =
+        [
+          `用户原始选择 ${params.originalCount} 张，前端本地初筛后给你 ${params.images.length} 张候选图。`,
+          params.locationLabel ? `地点：${params.locationLabel}` : "",
+          params.timeLabel ? `时间：${params.timeLabel}` : "",
+          params.userNote ? `用户想表达：${params.userNote}` : "",
+        ]
+          .filter(Boolean)
+          .join("\n") || "没有额外上下文。";
+      const content: ChatContentPart[] = [
+        {
+          type: "text",
+          text:
+            "请帮用户从候选图里挑出适合发微信朋友圈的图片方案，并顺便给每个方案一条很短的朋友圈文案。\n\n" +
+            "任务：\n" +
+            "1. 返回 1 到 3 个发图方案\n" +
+            "2. 每个方案决定发哪几张、顺序、首图\n" +
+            "3. 每个方案给一句短理由和一条自然朋友圈文案\n" +
+            "4. 给出不建议发的图片及原因\n\n" +
+            "输出规则：\n" +
+            "- 只返回 JSON，不要解释文字\n" +
+            "- 所有 imageId 必须来自输入\n" +
+            "- 每个方案最多 9 张，不要为了凑数量硬选\n" +
+            "- coverImageId 必须在该方案 imageIds 内\n" +
+            "- 方案之间要有明显差异\n" +
+            "- 文案不要小红书感，不要像图片描述\n\n" +
+            `上下文：\n${contextText}\n\n` +
+            'JSON 格式：{"imageSummary":"...","plans":[{"title":"精选 4 张","coverImageId":"imageId","imageIds":["imageId"],"reason":"...","caption":{"style":"natural","text":"..."}}],"rejected":[{"imageId":"imageId","reason":"..."}]}',
+        },
+      ];
+
+      params.images.forEach((image, index) => {
+        content.push({
+          type: "text",
+          text: [
+            `图片 ${index + 1}，imageId: ${image.id}`,
+            image.width && image.height ? `尺寸：${image.width}x${image.height}` : "",
+            image.localScore !== undefined
+              ? `本地质量分：${image.localScore.toFixed(2)}`
+              : "",
+            image.clusterId ? `相似组：${image.clusterId}` : "",
+            image.flags?.length ? `本地标记：${image.flags.join(",")}` : "",
+          ]
+            .filter(Boolean)
+            .join("\n"),
+        });
+        content.push({
+          type: "image_url",
+          image_url: {
+            url: `data:${image.mimeType};base64,${image.buffer.toString("base64")}`,
+          },
+        });
+      });
+
+      const aiRequestStartedAt = Date.now();
+      const completion = await this.createChatCompletion(providerConfig, {
+        ...(this.shouldDisableThinking(candidate)
+          ? { thinking: { type: "disabled" as const } }
+          : {}),
+        max_tokens: candidate.task.maxTokens,
+        temperature: candidate.task.temperature,
+        ...(this.shouldUseJsonMode(candidate)
+          ? { response_format: { type: "json_object" as const } }
+          : {}),
+        messages: [
+          {
+            role: "system",
+            content: this.getTaskSystemPrompt("pickImage"),
+          },
+          {
+            role: "user",
+            content,
+          },
+        ],
+      });
+      const aiLatencyMs = Date.now() - aiRequestStartedAt;
+      const reasoningTokens = this.getReasoningTokens(completion);
+      const contentText = completion.choices[0]?.message?.content;
+      const parsed = this.parsePickImagesResult(
+        contentText,
+        params.images.map((image) => image.id),
+      );
+
+      const usage = await this.recordUsage({
+        requestId,
+        userId: params.userId,
+        feature: AiFeature.pick_image,
+        provider: providerConfig.provider,
+        model: providerConfig.model,
+        status: AiUsageStatus.success,
+        latencyMs: Date.now() - startedAt,
+        inputTokens: completion.usage?.prompt_tokens,
+        outputTokens: completion.usage?.completion_tokens,
+      });
+
+      this.logger.log(
+        `AI image pick generation completed requestId=${requestId} provider=${providerConfig.provider} model=${providerConfig.model} imageCount=${params.images.length} aiLatencyMs=${aiLatencyMs} totalLatencyMs=${Date.now() - startedAt} inputTokens=${completion.usage?.prompt_tokens ?? 0} outputTokens=${completion.usage?.completion_tokens ?? 0} reasoningTokens=${reasoningTokens ?? 0}`,
+      );
+
+      return {
+        ...parsed,
+        aiUsageId: usage.id,
+      };
+    } catch (error) {
+      this.logger.warn(
+        `AI image pick generation failed requestId=${requestId} provider=${providerConfig.provider} model=${providerConfig.model} totalLatencyMs=${Date.now() - startedAt} error=${this.formatErrorForLog(error)}`,
+      );
+      await this.recordUsageSafely({
+        requestId,
+        userId: params.userId,
+        feature: AiFeature.pick_image,
         provider: providerConfig.provider,
         model: providerConfig.model,
         status: AiUsageStatus.failed,
@@ -699,8 +884,83 @@ export class AiService {
     };
   }
 
+  private parsePickImagesResult(
+    content: string | null | undefined,
+    imageIds: string[],
+  ): PickImagesResult {
+    if (!content) {
+      throw new Error("empty ai response");
+    }
+
+    const parsed = JSON.parse(content) as PickImagesResult;
+    const expectedIds = new Set(imageIds);
+    const validStyles = new Set(["natural", "daily", "minimal"]);
+    const plans = Array.isArray(parsed.plans)
+      ? parsed.plans
+          .slice(0, 3)
+          .map((plan) => {
+            const ids = Array.isArray(plan.imageIds)
+              ? plan.imageIds.filter((id) => expectedIds.has(id))
+              : [];
+            const uniqueIds = [...new Set(ids)].slice(0, 9);
+            if (
+              uniqueIds.length === 0 ||
+              !expectedIds.has(plan.coverImageId) ||
+              !uniqueIds.includes(plan.coverImageId) ||
+              !plan.caption?.text ||
+              !validStyles.has(plan.caption.style)
+            ) {
+              return null;
+            }
+
+            return {
+              title: String(plan.title || `精选 ${uniqueIds.length} 张`).slice(
+                0,
+                12,
+              ),
+              coverImageId: plan.coverImageId,
+              imageIds: uniqueIds,
+              reason: String(plan.reason || "").slice(0, 40),
+              caption: {
+                style: plan.caption.style,
+                text: String(plan.caption.text).slice(0, 120),
+              },
+            };
+          })
+          .filter((plan): plan is PickImagesResult["plans"][number] =>
+            Boolean(plan),
+          )
+      : [];
+
+    if (plans.length === 0) {
+      throw new Error("invalid ai response");
+    }
+
+    return {
+      imageSummary: String(parsed.imageSummary || "").slice(0, 30),
+      plans,
+      rejected: Array.isArray(parsed.rejected)
+        ? parsed.rejected
+            .filter((item) => expectedIds.has(item.imageId))
+            .slice(0, imageIds.length)
+            .map((item) => ({
+              imageId: item.imageId,
+              reason: String(item.reason || "").slice(0, 40),
+            }))
+        : [],
+    };
+  }
+
   private decodeImages(
-    images: RankImagesDto["images"],
+    images: Array<
+      RankImagesDto["images"][number] & {
+        width?: number;
+        height?: number;
+        localScore?: number;
+        clusterId?: string;
+        flags?: string[];
+      }
+    >,
     minCount: 1 | 2,
     maxCount = 9,
   ) {
@@ -734,6 +994,11 @@ export class AiService {
         id: image.id,
         mimeType: image.mimeType,
         buffer,
+        width: image.width,
+        height: image.height,
+        localScore: image.localScore,
+        clusterId: image.clusterId,
+        flags: image.flags,
       };
     });
   }
@@ -742,9 +1007,9 @@ export class AiService {
     requestId: string;
     userId: string;
     provider: string;
-    feature: AiFeature;
+    feature: AiFeatureType;
     model: string;
-    status: AiUsageStatus;
+    status: AiUsageStatusType;
     latencyMs: number;
     inputTokens?: number;
     outputTokens?: number;

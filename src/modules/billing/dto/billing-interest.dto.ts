@@ -1,14 +1,22 @@
 import { ApiProperty } from "@nestjs/swagger";
-import { AiFeature } from "@prisma/client";
 import { IsIn, IsInt, IsObject, IsOptional, Min } from "class-validator";
+
+import {
+  AiFeature,
+  type AiFeature as AiFeatureType,
+} from "../../ai/ai.constants";
 
 export const billingInterestFeatures = [
   AiFeature.rewrite,
   AiFeature.caption,
   AiFeature.image_rank,
+  AiFeature.pick_image,
 ] as const;
 
-export type BillingInterestFeature = (typeof billingInterestFeatures)[number];
+export type BillingInterestFeature = Extract<
+  AiFeatureType,
+  (typeof billingInterestFeatures)[number]
+>;
 
 export class BillingInterestDto {
   @ApiProperty({

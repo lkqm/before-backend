@@ -4,6 +4,7 @@ const REQUIRED_SYSTEM_PROMPT_TASKS = new Set([
   "rewrite",
   "caption",
   "imageRank",
+  "pickImage",
 ]);
 
 export function validateConfig(config: AppConfig) {

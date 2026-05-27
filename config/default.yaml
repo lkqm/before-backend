@@ -66,14 +66,15 @@ ai:
           weight: 100
           supportsJsonMode: true
           supportsThinking: true
+          enabled: false
 
         seed-pro-260215:
           id: doubao-seed-2-0-pro-260215
-          capabilities: [text, image]
-          weight: 50
+          capabilities: [image]
+          weight: 100
           supportsJsonMode: true
           supportsThinking: true
-          enabled: false
+          enabled: true
 
   strategy: weighted-random
 
@@ -177,25 +178,25 @@ ai:
         今天来到海边旅游，这里风景优美。
 
         输出：
-        - 风挺大的。
-        - 吹了会儿海风。
-        - 待了一下午。
+        - 风挺大的
+        - 吹了会儿海风
+        - 待了一下午
 
         输入：
         今天工作结束后感觉很轻松。
 
         输出：
-        - 终于下班了。
-        - 今天脑子有点转不动。
-        - 先缓缓。
+        - 终于下班了
+        - 今天脑子有点转不动
+        - 先缓缓
 
         输入：
         今天和朋友一起吃火锅，味道很好。
 
         输出：
-        - 吃撑了。
-        - 今天这顿还不错。
-        - 有点饱。
+        - 吃撑了
+        - 今天这顿还不错
+        - 有点饱
       thinking: false
       jsonMode: true
 
@@ -296,23 +297,23 @@ ai:
         博物馆图片：
 
         输出：
-        - 在里面转了好久。
-        - 越看越有意思。
-        - 待了一下午。
+        - 在里面转了好久
+        - 越看越有意思
+        - 待了一下午
 
         海边图片：
 
         输出：
-        - 风挺大的。
-        - 吹了会儿海风。
-        - 今天有点晒。
+        - 风挺大的
+        - 吹了会儿海风
+        - 今天有点晒
 
         聚餐图片：
 
         输出：
-        - 吃撑了。
-        - 今天这顿还不错。
-        - 有点饱。
+        - 吃撑了
+        - 今天这顿还不错
+        - 有点饱
       thinking: false
       jsonMode: true
 
@@ -409,5 +410,67 @@ ai:
 
         更舒服：
         远景 → 人物 → 细节
+      thinking: false
+      jsonMode: true
+
+    pickImage:
+      mode: image
+      maxImages: 12
+      maxTokens: 900
+      temperature: 0.55
+      systemPrompt: |-
+        你很懂微信朋友圈里的发图观感。
+
+        你的任务不是摄影评分，
+        而是帮用户从候选照片里做决定：
+        哪几张适合发朋友圈，
+        哪张放第一张，
+        按什么顺序更自然，
+        顺便给一句像真人随手发的朋友圈文案。
+
+        重要原则：
+        - 宁缺毋滥，不要为了凑 9 张硬选
+        - 优先给 3 张、4 张、6 张或 9 张方案
+        - 尽量不要给 5 张、7 张、8 张方案
+        - 方案之间要有明显区别
+        - 第一张要适合朋友圈首图
+        - 避免连续重复、连拍感、信息太乱
+        - 人像要看状态自然，不要尴尬表情
+        - 风景、人物、细节、食物、合照可以穿插
+        - 本地质量分和标记只是参考，不要机械服从
+
+        文案要求：
+        - 很短
+        - 自然
+        - 像微信朋友圈
+        - 不要描述图片
+        - 不要小红书感
+        - 不要“氛围感”“记录生活”“今日份”“被治愈”
+        - 不要金句、总结、作文感
+
+        返回 JSON：
+        {
+          "imageSummary": "30字以内整体场景",
+          "plans": [
+            {
+              "title": "精选 4 张",
+              "coverImageId": "输入图片ID",
+              "imageIds": ["按发布顺序排列的输入图片ID"],
+              "reason": "40字以内理由",
+              "caption": {
+                "style": "natural",
+                "text": "一句朋友圈文案"
+              }
+            }
+          ],
+          "rejected": [
+            {
+              "imageId": "输入图片ID",
+              "reason": "40字以内原因"
+            }
+          ]
+        }
+
+        只返回 JSON。
       thinking: false
       jsonMode: true

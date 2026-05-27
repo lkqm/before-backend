@@ -7,26 +7,6 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-enum AiFeature {
-  ai
-  caption
-  image_rank
-  rewrite
-}
-
-enum AiUsageStatus {
-  success
-  failed
-  blocked
-  timeout
-}
-
-enum AiFeedbackResult {
-  accepted
-  dismissed
-  reverted
-}
-
 model User {
   id        String   @id @default(cuid())
   openId    String   @unique
@@ -48,12 +28,12 @@ model AiUsage {
   requestId    String        @unique
   userId       String
   provider     String
-  feature      AiFeature
+  feature      String        @db.VarChar(32)
   model        String
   inputTokens  Int?
   outputTokens Int?
   costEstimate Decimal?      @db.Decimal(12, 6)
-  status       AiUsageStatus
+  status       String        @db.VarChar(32)
   latencyMs    Int?
   errorMessage String?       @db.Text
   createdAt    DateTime      @default(now())
@@ -68,7 +48,7 @@ model AiFeedback {
   id        String           @id @default(cuid())
   userId    String
   aiUsageId String
-  result    AiFeedbackResult
+  result    String   @db.VarChar(32)
   metadata  Json?
   createdAt DateTime         @default(now())
 
@@ -98,7 +78,7 @@ model AiCreditLedger {
   balance   Int
   reason    String
   dedupeKey String?    @unique
-  feature   AiFeature?
+  feature   String?    @db.VarChar(32)
   aiUsageId String?
   metadata  Json?
   createdAt DateTime   @default(now())
@@ -111,7 +91,7 @@ model AiCreditLedger {
 model BillingInterest {
   id               String    @id @default(cuid())
   userId           String
-  feature          AiFeature
+  feature          String    @db.VarChar(32)
   remainingCredits Int?
   metadata         Json?
   createdAt        DateTime  @default(now())

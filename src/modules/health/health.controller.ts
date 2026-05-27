@@ -1,12 +1,10 @@
 import { Controller, Get } from "@nestjs/common";
-import { ApiExtraModels, ApiOperation, ApiTags } from "@nestjs/swagger";
+import { ApiOperation, ApiTags } from "@nestjs/swagger";
 
 import { ApiWrappedOkResponse } from "../../common/swagger/api-ok-response";
-import { ApiSuccessResponseDto } from "../../common/swagger/api-response.dto";
 import { HealthResponseDto } from "./dto/health-response.dto";
 
 @ApiTags("健康检查")
-@ApiExtraModels(ApiSuccessResponseDto, HealthResponseDto)
 @Controller("health")
 export class HealthController {
   @ApiOperation({

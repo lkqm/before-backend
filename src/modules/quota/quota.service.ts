@@ -1,9 +1,10 @@
 import { HttpStatus, Injectable } from "@nestjs/common";
-import { AiFeature, Prisma } from "@prisma/client";
+import { Prisma } from "@prisma/client";
 
 import { PrismaService } from "../../common/prisma/prisma.service";
 import { AppErrorCode, AppException } from "../../common/errors/app.exception";
 import { appConfig } from "../../config";
+import type { AiFeature } from "../ai/ai.constants";
 import { AuthService } from "../auth/auth.service";
 
 @Injectable()

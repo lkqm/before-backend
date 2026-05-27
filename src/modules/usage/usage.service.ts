@@ -1,11 +1,14 @@
 import { BadRequestException, Injectable } from "@nestjs/common";
-import { AiFeature, AiUsageStatus } from "@prisma/client";
 
 import { PrismaService } from "../../common/prisma/prisma.service";
 import { getChinaDateRange } from "../../common/date";
+import {
+  aiUsageStatuses,
+  type AiUsageStatus,
+} from "../ai/ai.constants";
 
 type FeatureSummary = {
-  feature: AiFeature;
+  feature: string;
   total: number;
   success: number;
   failed: number;
@@ -37,12 +40,14 @@ export class UsageService {
         latencyMs: true,
       },
     });
-    const summaries = new Map<AiFeature, FeatureSummary>();
+    const summaries = new Map<string, FeatureSummary>();
 
     for (const row of rows) {
       const summary = this.getOrCreateSummary(summaries, row.feature);
       summary.total += 1;
-      summary[row.status] += 1;
+      if (isAiUsageStatus(row.status)) {
+        summary[row.status] += 1;
+      }
       summary.inputTokens += row.inputTokens ?? 0;
       summary.outputTokens += row.outputTokens ?? 0;
 
@@ -64,8 +69,8 @@ export class UsageService {
   }
 
   private getOrCreateSummary(
-    summaries: Map<AiFeature, FeatureSummary>,
-    feature: AiFeature,
+    summaries: Map<string, FeatureSummary>,
+    feature: string,
   ) {
     const existing = summaries.get(feature);
     if (existing) return existing;
@@ -92,4 +97,8 @@ export class UsageService {
       throw new BadRequestException("date must be YYYY-MM-DD");
     }
   }
+}
+
+function isAiUsageStatus(status: string): status is AiUsageStatus {
+  return (aiUsageStatuses as readonly string[]).includes(status);
 }

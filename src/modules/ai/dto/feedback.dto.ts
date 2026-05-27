@@ -1,6 +1,10 @@
 import { ApiProperty } from "@nestjs/swagger";
-import { AiFeedbackResult } from "@prisma/client";
-import { IsEnum, IsObject, IsOptional, IsString } from "class-validator";
+import { IsIn, IsObject, IsOptional, IsString } from "class-validator";
+
+import {
+  aiFeedbackResults,
+  type AiFeedbackResult,
+} from "../ai.constants";
 
 export class AiFeedbackDto {
   @ApiProperty({
@@ -12,10 +16,10 @@ export class AiFeedbackDto {
 
   @ApiProperty({
     description: "用户对本次 AI 结果的最终反馈",
-    enum: AiFeedbackResult,
-    example: AiFeedbackResult.accepted,
+    enum: aiFeedbackResults,
+    example: "accepted",
   })
-  @IsEnum(AiFeedbackResult)
+  @IsIn(aiFeedbackResults)
   result!: AiFeedbackResult;
 
   @ApiProperty({
