@@ -3,15 +3,17 @@ import { randomUUID } from "node:crypto";
 import {
   BadRequestException,
   HttpStatus,
+  Inject,
   Injectable,
   Logger,
 } from "@nestjs/common";
-import { ConfigService } from "@nestjs/config";
+import { ConfigType } from "@nestjs/config";
 import { AiFeature, AiUsageStatus, Prisma } from "@prisma/client";
 import OpenAI from "openai";
 
 import { AppErrorCode, AppException } from "../../common/errors/app.exception";
 import { PrismaService } from "../../common/prisma/prisma.service";
+import aiConfig from "../../config/ai.config";
 import { QuotaService } from "../quota/quota.service";
 import { AiLockService } from "./ai-lock.service";
 import { CaptionDto } from "./dto/caption.dto";
@@ -34,8 +36,6 @@ type ChatContentPart =
   | { type: "text"; text: string }
   | { type: "image_url"; image_url: { url: string } };
 
-const IMAGE_CAPTION_MAX_IMAGES = 4;
-
 type ChatCompletionParams = Omit<
   OpenAI.Chat.Completions.ChatCompletionCreateParamsNonStreaming,
   "model"
@@ -48,7 +48,8 @@ export class AiService {
   private readonly logger = new Logger(AiService.name);
 
   constructor(
-    private readonly config: ConfigService,
+    @Inject(aiConfig.KEY)
+    private readonly aiConfiguration: ConfigType<typeof aiConfig>,
     private readonly prisma: PrismaService,
     private readonly quotaService: QuotaService,
     private readonly aiLockService: AiLockService,
@@ -63,8 +64,9 @@ export class AiService {
       const result = await this.runTextGeneration({
         userId,
         feature: AiFeature.rewrite,
-        disableThinking: true,
-        maxTokens: 120,
+        disableThinking: this.aiConfiguration.rewrite.disableThinking,
+        maxTokens: this.aiConfiguration.rewrite.maxTokens,
+        temperature: this.aiConfiguration.rewrite.temperature,
         systemPrompt:
           "你是一个朋友圈文案编辑，只输出自然、日常、克制的中文朋友圈表达。不要像广告，不要像小红书，不要解释。",
         userPrompt: `把下面这段话改写成 3 条更有朋友圈感的文案。每条尽量短，自然，不要过度抒情。\n\n${dto.text}`,
@@ -96,7 +98,7 @@ export class AiService {
             images: this.decodeImages(
               dto.images ?? [],
               1,
-              IMAGE_CAPTION_MAX_IMAGES,
+              this.aiConfiguration.imageCaption.maxImages,
             ),
             scene,
             userNote: dto.userNote?.trim(),
@@ -106,8 +108,9 @@ export class AiService {
         : await this.runTextGeneration({
             userId,
             feature: AiFeature.caption,
-            disableThinking: true,
-            maxTokens: 240,
+            disableThinking: this.aiConfiguration.textCaption.disableThinking,
+            maxTokens: this.aiConfiguration.textCaption.maxTokens,
+            temperature: this.aiConfiguration.textCaption.temperature,
             systemPrompt:
               "你是一个朋友圈文案编辑，根据用户给的场景生成自然、日常、克制的中文朋友圈表达。不要像广告，不要像作文，不要解释。",
             userPrompt: `根据这个场景生成 3 条朋友圈文案：${scene}`,
@@ -182,6 +185,7 @@ export class AiService {
     userPrompt: string;
     disableThinking?: boolean;
     maxTokens?: number;
+    temperature?: number;
   }): Promise<AiResult & { aiUsageId: string }> {
     const requestId = `req_${randomUUID()}`;
     const startedAt = Date.now();
@@ -212,7 +216,7 @@ export class AiService {
         ...(params.disableThinking
           ? { thinking: { type: "disabled" as const } }
           : {}),
-        temperature: 0.7,
+        temperature: params.temperature,
         messages: [
           { role: "system", content: params.systemPrompt },
           {
@@ -451,9 +455,11 @@ export class AiService {
 
       const aiRequestStartedAt = Date.now();
       const completion = await this.createChatCompletion(providerConfig, {
-        thinking: { type: "disabled" },
-        max_tokens: 220,
-        temperature: 0.7,
+        ...(this.aiConfiguration.imageCaption.disableThinking
+          ? { thinking: { type: "disabled" as const } }
+          : {}),
+        max_tokens: this.aiConfiguration.imageCaption.maxTokens,
+        temperature: this.aiConfiguration.imageCaption.temperature,
         response_format: { type: "json_object" },
         messages: [
           {
@@ -536,54 +542,7 @@ export class AiService {
   }
 
   private getProviderConfig(kind: "text" | "image") {
-    const prefix = kind === "text" ? "TEXT_AI" : "IMAGE_AI";
-    const provider =
-      this.readConfig(`${prefix}_PROVIDER`) ??
-      this.readConfig("AI_PROVIDER") ??
-      "openai";
-    const apiKey =
-      this.readConfig(`${prefix}_API_KEY`) ??
-      this.readConfig("AI_API_KEY") ??
-      this.readConfig("OPENAI_API_KEY");
-    const model =
-      this.readConfig(`${prefix}_MODEL`) ??
-      this.readConfig("AI_MODEL") ??
-      this.readConfig("OPENAI_MODEL") ??
-      "gpt-4.1-mini";
-    const baseURL =
-      this.readConfig(`${prefix}_BASE_URL`) ?? this.readConfig("AI_BASE_URL");
-    const timeoutMs =
-      this.readPositiveInt(`${prefix}_TIMEOUT_MS`) ??
-      this.readPositiveInt("AI_TIMEOUT_MS") ??
-      (kind === "text" ? 15000 : 30000);
-    const maxRetries =
-      this.readNonNegativeInt(`${prefix}_MAX_RETRIES`) ??
-      this.readNonNegativeInt("AI_MAX_RETRIES") ??
-      0;
-
-    return {
-      provider,
-      apiKey,
-      model,
-      baseURL,
-      timeoutMs,
-      maxRetries,
-    };
-  }
-
-  private readConfig(key: string) {
-    const value = this.config.get<string>(key)?.trim();
-    return value ? value : undefined;
-  }
-
-  private readPositiveInt(key: string) {
-    const value = Number(this.readConfig(key));
-    return Number.isInteger(value) && value > 0 ? value : undefined;
-  }
-
-  private readNonNegativeInt(key: string) {
-    const value = Number(this.readConfig(key));
-    return Number.isInteger(value) && value >= 0 ? value : undefined;
+    return this.aiConfiguration[kind];
   }
 
   private parseResult(content: string | null | undefined): AiResult {

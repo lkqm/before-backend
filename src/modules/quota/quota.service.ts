@@ -1,19 +1,19 @@
-import { HttpStatus, Injectable } from "@nestjs/common";
-import { ConfigService } from "@nestjs/config";
+import { HttpStatus, Inject, Injectable } from "@nestjs/common";
+import { ConfigType } from "@nestjs/config";
 import { AiFeature, Prisma } from "@prisma/client";
 
 import { PrismaService } from "../../common/prisma/prisma.service";
 import { AppErrorCode, AppException } from "../../common/errors/app.exception";
+import quotaConfig from "../../config/quota.config";
 import { AuthService } from "../auth/auth.service";
-
-const DEFAULT_SIGNUP_AI_CREDITS = 10;
 
 @Injectable()
 export class QuotaService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly authService: AuthService,
-    private readonly config: ConfigService,
+    @Inject(quotaConfig.KEY)
+    private readonly quotaConfiguration: ConfigType<typeof quotaConfig>,
   ) {}
 
   async getQuota(userId: string) {
@@ -85,13 +85,16 @@ export class QuotaService {
       where: { userId },
       create: {
         userId,
-        balance: this.signupAiCredits,
-        totalAdded: this.signupAiCredits,
+        balance: this.quotaConfiguration.signupAiCredits,
+        totalAdded: this.quotaConfiguration.signupAiCredits,
       },
       update: {},
     });
 
-    if (account.totalAdded !== this.signupAiCredits || account.totalUsed !== 0) {
+    if (
+      account.totalAdded !== this.quotaConfiguration.signupAiCredits ||
+      account.totalUsed !== 0
+    ) {
       return account;
     }
 
@@ -105,13 +108,15 @@ export class QuotaService {
 
     if (!grantLedger) {
       await tx.aiCreditLedger.createMany({
-        data: [{
-          userId,
-          delta: this.signupAiCredits,
-          balance: account.balance,
-          reason: "signup_grant",
-          dedupeKey: `signup_grant:${userId}`,
-        }],
+        data: [
+          {
+            userId,
+            delta: this.quotaConfiguration.signupAiCredits,
+            balance: account.balance,
+            reason: "signup_grant",
+            dedupeKey: `signup_grant:${userId}`,
+          },
+        ],
         skipDuplicates: true,
       });
     }
@@ -129,15 +134,5 @@ export class QuotaService {
       totalAdded: account.totalAdded,
       totalUsed: account.totalUsed,
     };
-  }
-
-  private get signupAiCredits() {
-    const value = this.config.get<string>("SIGNUP_AI_CREDITS");
-    if (!value) return DEFAULT_SIGNUP_AI_CREDITS;
-
-    const parsed = Number(value);
-    return Number.isInteger(parsed) && parsed >= 0
-      ? parsed
-      : DEFAULT_SIGNUP_AI_CREDITS;
   }
 }

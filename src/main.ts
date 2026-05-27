@@ -3,7 +3,7 @@ import "reflect-metadata";
 import { randomUUID } from "node:crypto";
 
 import { ValidationPipe } from "@nestjs/common";
-import { ConfigService } from "@nestjs/config";
+import { ConfigService, ConfigType } from "@nestjs/config";
 import { NestFactory } from "@nestjs/core";
 import { DocumentBuilder, SwaggerModule } from "@nestjs/swagger";
 import {
@@ -16,6 +16,10 @@ import helmet from "@fastify/helmet";
 import { AppModule } from "./app.module";
 import { AllExceptionsFilter } from "./common/filters/all-exceptions.filter";
 import { ResponseInterceptor } from "./common/interceptors/response.interceptor";
+import aiConfig from "./config/ai.config";
+import appConfig from "./config/app.config";
+import authConfig from "./config/auth.config";
+import databaseConfig from "./config/database.config";
 
 async function bootstrap() {
   const app = await NestFactory.create<NestFastifyApplication>(
@@ -27,7 +31,9 @@ async function bootstrap() {
     }),
   );
   const config = app.get(ConfigService);
-  validateRequiredConfig(config);
+  const appConfiguration =
+    config.getOrThrow<ConfigType<typeof appConfig>>("app");
+  validateRequiredConfig(config, appConfiguration);
 
   await app.register(helmet);
   await app.register(cors, { origin: true });
@@ -42,7 +48,7 @@ async function bootstrap() {
   app.useGlobalFilters(new AllExceptionsFilter());
   app.useGlobalInterceptors(new ResponseInterceptor());
 
-  if (isSwaggerEnabled(config)) {
+  if (appConfiguration.swaggerEnabled) {
     const swaggerConfig = new DocumentBuilder()
       .setTitle("before-backend API")
       .setDescription("圈感小程序后端接口文档")
@@ -61,39 +67,32 @@ async function bootstrap() {
     });
   }
 
-  const port = config.get<number>("PORT") ?? 3000;
-  await app.listen(port, "0.0.0.0");
+  await app.listen(appConfiguration.port, "0.0.0.0");
 }
 
-function validateRequiredConfig(config: ConfigService) {
-  const requiredKeys = [
-    "DATABASE_URL",
-    "WECHAT_APP_ID",
-    "WECHAT_APP_SECRET",
-    "AI_API_KEY",
-    "AI_MODEL",
-  ];
-  if (readConfig(config, "APP_ENV") === "prod") {
-    requiredKeys.push("AUTH_TOKEN_SECRET");
-  }
-
-  const missingKeys = requiredKeys.filter((key) => !readConfig(config, key));
+function validateRequiredConfig(
+  config: ConfigService,
+  appConfiguration: ConfigType<typeof appConfig>,
+) {
+  const authConfiguration =
+    config.getOrThrow<ConfigType<typeof authConfig>>("auth");
+  const aiConfiguration = config.getOrThrow<ConfigType<typeof aiConfig>>("ai");
+  const databaseConfiguration =
+    config.getOrThrow<ConfigType<typeof databaseConfig>>("database");
+  const missingKeys = [
+    databaseConfiguration.url ? "" : "DATABASE_URL",
+    authConfiguration.wechat.appId ? "" : "WECHAT_APP_ID",
+    authConfiguration.wechat.appSecret ? "" : "WECHAT_APP_SECRET",
+    aiConfiguration.hasConfiguredApiKey ? "" : "AI_API_KEY",
+    aiConfiguration.hasConfiguredModel ? "" : "AI_MODEL",
+    appConfiguration.isProd && !authConfiguration.tokenSecret
+      ? "AUTH_TOKEN_SECRET"
+      : "",
+  ].filter(Boolean);
 
   if (missingKeys.length > 0) {
     throw new Error(`Missing required config: ${missingKeys.join(", ")}`);
   }
-}
-
-function isSwaggerEnabled(config: ConfigService) {
-  const explicitValue = readConfig(config, "ENABLE_SWAGGER");
-  if (explicitValue) return explicitValue === "true";
-
-  return readConfig(config, "APP_ENV") !== "prod";
-}
-
-function readConfig(config: ConfigService, key: string) {
-  const value = config.get<string>(key)?.trim();
-  return value ? value : undefined;
 }
 
 void bootstrap();
