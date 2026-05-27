@@ -13,6 +13,7 @@ export enum AppErrorCode {
   AiProviderNotConfigured = 5001,
   AiProviderError = 5002,
   AiInvalidResponse = 5003,
+  AiProviderTimeout = 5004,
 }
 
 export class AppException extends HttpException {

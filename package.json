@@ -9,6 +9,7 @@
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "prisma:migrate:deploy": "prisma migrate deploy",
+    "ai:bench": "node scripts/ai-benchmark.mjs",
     "typecheck": "tsc --noEmit --incremental false -p tsconfig.build.json",
     "format": "prettier --write \"src/**/*.ts\" \"prisma/**/*.prisma\""
   },

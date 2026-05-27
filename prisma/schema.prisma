@@ -30,35 +30,35 @@ enum AiFeedbackResult {
 model User {
   id        String   @id @default(cuid())
   openId    String   @unique
-  unionId    String?  @unique
+  unionId   String?  @unique
   nickname  String?
   avatarUrl String?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  aiUsages    AiUsage[]
-  aiFeedbacks AiFeedback[]
-  aiCreditAccount AiCreditAccount?
-  aiCreditLedgers AiCreditLedger[]
+  aiUsages         AiUsage[]
+  aiFeedbacks      AiFeedback[]
+  aiCreditAccount  AiCreditAccount?
+  aiCreditLedgers  AiCreditLedger[]
   billingInterests BillingInterest[]
 }
 
 model AiUsage {
-  id             String        @id @default(cuid())
-  requestId      String        @unique
-  userId         String
-  provider       String
-  feature        AiFeature
-  model          String
-  inputTokens    Int?
-  outputTokens   Int?
-  costEstimate   Decimal?      @db.Decimal(12, 6)
-  status         AiUsageStatus
-  latencyMs      Int?
-  errorMessage   String?
-  createdAt      DateTime      @default(now())
+  id           String        @id @default(cuid())
+  requestId    String        @unique
+  userId       String
+  provider     String
+  feature      AiFeature
+  model        String
+  inputTokens  Int?
+  outputTokens Int?
+  costEstimate Decimal?      @db.Decimal(12, 6)
+  status       AiUsageStatus
+  latencyMs    Int?
+  errorMessage String?       @db.Text
+  createdAt    DateTime      @default(now())
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user      User         @relation(fields: [userId], references: [id], onDelete: Cascade)
   feedbacks AiFeedback[]
 
   @@index([userId, feature, createdAt])
@@ -75,18 +75,18 @@ model AiFeedback {
   user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
   aiUsage AiUsage @relation(fields: [aiUsageId], references: [id], onDelete: Cascade)
 
+  @@unique([aiUsageId])
   @@index([userId, createdAt])
   @@index([result, createdAt])
-  @@unique([aiUsageId])
 }
 
 model AiCreditAccount {
-  userId    String   @id
-  balance   Int      @default(0)
-  totalAdded Int     @default(0)
-  totalUsed  Int     @default(0)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  userId     String   @id
+  balance    Int      @default(0)
+  totalAdded Int      @default(0)
+  totalUsed  Int      @default(0)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
@@ -109,12 +109,12 @@ model AiCreditLedger {
 }
 
 model BillingInterest {
-  id               String   @id @default(cuid())
+  id               String    @id @default(cuid())
   userId           String
   feature          AiFeature
   remainingCredits Int?
   metadata         Json?
-  createdAt        DateTime @default(now())
+  createdAt        DateTime  @default(now())
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 

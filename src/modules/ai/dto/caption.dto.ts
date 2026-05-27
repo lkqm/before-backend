@@ -31,13 +31,13 @@ export class CaptionDto {
     description: "用于生成文案的图片列表，可选；传入时走多模态文案生成",
     required: false,
     minItems: 1,
-    maxItems: 9,
+    maxItems: 4,
     type: [RankImageItemDto],
   })
   @IsOptional()
   @IsArray()
   @ArrayMinSize(1)
-  @ArrayMaxSize(9)
+  @ArrayMaxSize(4)
   @ValidateNested({ each: true })
   @Type(() => RankImageItemDto)
   images?: RankImageItemDto[];
