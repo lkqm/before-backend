@@ -982,7 +982,7 @@ export class AiService {
       if (buffer.length === 0) {
         throw new BadRequestException("image is empty");
       }
-      if (buffer.length > 800 * 1024) {
+      if (buffer.length > 512 * 1024) {
         throw new AppException(
           AppErrorCode.ImageTooLarge,
           "image is too large",

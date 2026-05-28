@@ -28,7 +28,7 @@ export class RankImageItemDto {
 
   @ApiProperty({
     description:
-      "图片 base64 内容，可带 data URL 前缀；后端解码后单张最大 800KB",
+      "图片 base64 内容，可带 data URL 前缀；后端解码后单张最大 512KB",
     maxLength: 1_100_000,
     example: "/9j/4AAQSkZJRgABAQ...",
   })
