@@ -93,7 +93,9 @@ CREATE TABLE `AiUsage` (
     `feature` VARCHAR(32) NOT NULL,
     `model` VARCHAR(191) NOT NULL,
     `inputTokens` INTEGER NULL,
+    `cachedInputTokens` INTEGER NULL,
     `outputTokens` INTEGER NULL,
+    `reasoningTokens` INTEGER NULL,
     `costEstimate` DECIMAL(12, 6) NULL,
     `status` VARCHAR(32) NOT NULL,
     `latencyMs` INTEGER NULL,
@@ -191,4 +193,3 @@ ALTER TABLE `AiCreditLedger` ADD CONSTRAINT `AiCreditLedger_userId_fkey` FOREIGN
 
 -- AddForeignKey
 ALTER TABLE `BillingInterest` ADD CONSTRAINT `BillingInterest_userId_fkey` FOREIGN KEY (`userId`) REFERENCES `User`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
-

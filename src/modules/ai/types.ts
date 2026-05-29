@@ -1,7 +1,8 @@
 export type UploadedImage = {
   id: string;
   mimeType: string;
-  buffer: Buffer;
+  buffer?: Buffer;
+  url?: string;
   width?: number;
   height?: number;
   localScore?: number;

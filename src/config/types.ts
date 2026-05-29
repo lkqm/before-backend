@@ -7,13 +7,10 @@ export type AiProviderType = "openai-compatible";
 export type AiStrategy = "weighted-random" | "first-available";
 
 export type AiModelPricing = {
-  currency?: string;
-  unit?: "1k_tokens";
-  base?: {
-    input?: number;
-    output?: number;
-  };
+  input?: number;
+  output?: number;
   cachedInput?: number;
+  cacheStoragePerHour?: number;
   reasoningOutput?: number;
   imageInput?: {
     unit?: "image";
@@ -21,8 +18,10 @@ export type AiModelPricing = {
   };
   tiers?: Array<{
     key: string;
-    label?: string;
+    minInputTokens?: number;
+    maxInputTokens?: number;
     input?: number;
+    cachedInput?: number;
     output?: number;
   }>;
 };

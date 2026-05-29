@@ -3,6 +3,7 @@ import {
   ArrayMinSize,
   IsArray,
   IsIn,
+  IsOptional,
   IsString,
   MaxLength,
   ValidateNested,
@@ -28,13 +29,26 @@ export class RankImageItemDto {
 
   @ApiProperty({
     description:
-      "图片 base64 内容，可带 data URL 前缀；后端解码后单张最大 512KB",
+      "图片 base64 内容，可带 data URL 前缀；后端解码后单张最大 512KB。与 url 二选一",
+    required: false,
     maxLength: 1_100_000,
     example: "/9j/4AAQSkZJRgABAQ...",
   })
+  @IsOptional()
   @IsString()
   @MaxLength(1_100_000)
-  base64!: string;
+  base64?: string;
+
+  @ApiProperty({
+    description: "可公网访问的 HTTPS 图片 URL。与 base64 二选一",
+    required: false,
+    maxLength: 4096,
+    example: "https://example.com/image.jpg?sign=...",
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(4096)
+  url?: string;
 }
 
 export class RankImagesDto {

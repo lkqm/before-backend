@@ -275,6 +275,7 @@ export class AiService {
         ],
       });
       const aiLatencyMs = Date.now() - aiRequestStartedAt;
+      const cachedInputTokens = this.getCachedInputTokens(completion);
       const reasoningTokens = this.getReasoningTokens(completion);
       const content = completion.choices[0]?.message?.content;
       const parsed = this.parseResult(content);
@@ -289,9 +290,12 @@ export class AiService {
         status: AiUsageStatus.success,
         latencyMs: Date.now() - startedAt,
         inputTokens: completion.usage?.prompt_tokens,
+        cachedInputTokens,
         outputTokens: completion.usage?.completion_tokens,
+        reasoningTokens,
         costEstimate: this.estimateBaseTokenCost(
           completion.usage?.prompt_tokens,
+          cachedInputTokens,
           completion.usage?.completion_tokens,
           candidate.model.pricing,
         ),
@@ -300,7 +304,7 @@ export class AiService {
       const usageRecordLatencyMs = Date.now() - usageRecordStartedAt;
 
       this.logger.log(
-        `AI text generation completed requestId=${requestId} feature=${params.feature} provider=${providerConfig.provider} model=${providerConfig.model} aiLatencyMs=${aiLatencyMs} usageRecordLatencyMs=${usageRecordLatencyMs} totalLatencyMs=${Date.now() - startedAt} inputTokens=${completion.usage?.prompt_tokens ?? 0} outputTokens=${completion.usage?.completion_tokens ?? 0} reasoningTokens=${reasoningTokens ?? 0}`,
+        `AI text generation completed requestId=${requestId} feature=${params.feature} provider=${providerConfig.provider} model=${providerConfig.model} aiLatencyMs=${aiLatencyMs} usageRecordLatencyMs=${usageRecordLatencyMs} totalLatencyMs=${Date.now() - startedAt} inputTokens=${completion.usage?.prompt_tokens ?? 0} cachedInputTokens=${cachedInputTokens ?? 0} outputTokens=${completion.usage?.completion_tokens ?? 0} reasoningTokens=${reasoningTokens ?? 0}`,
       );
 
       return {
@@ -390,7 +394,7 @@ export class AiService {
         content.push({
           type: "image_url",
           image_url: {
-            url: `data:${image.mimeType};base64,${image.buffer.toString("base64")}`,
+            url: this.getModelImageUrl(image),
           },
         });
       });
@@ -420,6 +424,8 @@ export class AiService {
         contentText,
         params.images.map((image) => image.id),
       );
+      const cachedInputTokens = this.getCachedInputTokens(completion);
+      const reasoningTokens = this.getReasoningTokens(completion);
 
       const usage = await this.recordUsage({
         requestId,
@@ -430,9 +436,12 @@ export class AiService {
         status: AiUsageStatus.success,
         latencyMs: Date.now() - startedAt,
         inputTokens: completion.usage?.prompt_tokens,
+        cachedInputTokens,
         outputTokens: completion.usage?.completion_tokens,
+        reasoningTokens,
         costEstimate: this.estimateBaseTokenCost(
           completion.usage?.prompt_tokens,
+          cachedInputTokens,
           completion.usage?.completion_tokens,
           candidate.model.pricing,
         ),
@@ -553,7 +562,7 @@ export class AiService {
         content.push({
           type: "image_url",
           image_url: {
-            url: `data:${image.mimeType};base64,${image.buffer.toString("base64")}`,
+            url: this.getModelImageUrl(image),
           },
         });
       });
@@ -580,6 +589,7 @@ export class AiService {
         ],
       });
       const aiLatencyMs = Date.now() - aiRequestStartedAt;
+      const cachedInputTokens = this.getCachedInputTokens(completion);
       const reasoningTokens = this.getReasoningTokens(completion);
       const contentText = completion.choices[0]?.message?.content;
       const parsed = this.parsePickImagesResult(
@@ -596,9 +606,12 @@ export class AiService {
         status: AiUsageStatus.success,
         latencyMs: Date.now() - startedAt,
         inputTokens: completion.usage?.prompt_tokens,
+        cachedInputTokens,
         outputTokens: completion.usage?.completion_tokens,
+        reasoningTokens,
         costEstimate: this.estimateBaseTokenCost(
           completion.usage?.prompt_tokens,
+          cachedInputTokens,
           completion.usage?.completion_tokens,
           candidate.model.pricing,
         ),
@@ -606,7 +619,7 @@ export class AiService {
       });
 
       this.logger.log(
-        `AI image pick generation completed requestId=${requestId} provider=${providerConfig.provider} model=${providerConfig.model} imageCount=${params.images.length} aiLatencyMs=${aiLatencyMs} totalLatencyMs=${Date.now() - startedAt} inputTokens=${completion.usage?.prompt_tokens ?? 0} outputTokens=${completion.usage?.completion_tokens ?? 0} reasoningTokens=${reasoningTokens ?? 0}`,
+        `AI image pick generation completed requestId=${requestId} provider=${providerConfig.provider} model=${providerConfig.model} imageCount=${params.images.length} aiLatencyMs=${aiLatencyMs} totalLatencyMs=${Date.now() - startedAt} inputTokens=${completion.usage?.prompt_tokens ?? 0} cachedInputTokens=${cachedInputTokens ?? 0} outputTokens=${completion.usage?.completion_tokens ?? 0} reasoningTokens=${reasoningTokens ?? 0}`,
       );
 
       return {
@@ -703,7 +716,7 @@ export class AiService {
         content.push({
           type: "image_url",
           image_url: {
-            url: `data:${image.mimeType};base64,${image.buffer.toString("base64")}`,
+            url: this.getModelImageUrl(image),
           },
         });
       });
@@ -730,6 +743,7 @@ export class AiService {
         ],
       });
       const aiLatencyMs = Date.now() - aiRequestStartedAt;
+      const cachedInputTokens = this.getCachedInputTokens(completion);
       const reasoningTokens = this.getReasoningTokens(completion);
       const contentText = completion.choices[0]?.message?.content;
       const parsed = this.parseImageCaptionResult(contentText);
@@ -744,9 +758,12 @@ export class AiService {
         status: AiUsageStatus.success,
         latencyMs: Date.now() - startedAt,
         inputTokens: completion.usage?.prompt_tokens,
+        cachedInputTokens,
         outputTokens: completion.usage?.completion_tokens,
+        reasoningTokens,
         costEstimate: this.estimateBaseTokenCost(
           completion.usage?.prompt_tokens,
+          cachedInputTokens,
           completion.usage?.completion_tokens,
           candidate.model.pricing,
         ),
@@ -755,7 +772,7 @@ export class AiService {
       const usageRecordLatencyMs = Date.now() - usageRecordStartedAt;
 
       this.logger.log(
-        `AI image caption generation completed requestId=${requestId} provider=${providerConfig.provider} model=${providerConfig.model} imageCount=${params.images.length} aiLatencyMs=${aiLatencyMs} usageRecordLatencyMs=${usageRecordLatencyMs} totalLatencyMs=${Date.now() - startedAt} inputTokens=${completion.usage?.prompt_tokens ?? 0} outputTokens=${completion.usage?.completion_tokens ?? 0} reasoningTokens=${reasoningTokens ?? 0}`,
+        `AI image caption generation completed requestId=${requestId} provider=${providerConfig.provider} model=${providerConfig.model} imageCount=${params.images.length} aiLatencyMs=${aiLatencyMs} usageRecordLatencyMs=${usageRecordLatencyMs} totalLatencyMs=${Date.now() - startedAt} inputTokens=${completion.usage?.prompt_tokens ?? 0} cachedInputTokens=${cachedInputTokens ?? 0} outputTokens=${completion.usage?.completion_tokens ?? 0} reasoningTokens=${reasoningTokens ?? 0}`,
       );
 
       return {
@@ -804,9 +821,32 @@ export class AiService {
     const usage = completion.usage as
       | (OpenAI.Completions.CompletionUsage & {
           completion_tokens_details?: { reasoning_tokens?: number };
+          output_tokens_details?: { reasoning_tokens?: number };
         })
       | undefined;
-    return usage?.completion_tokens_details?.reasoning_tokens;
+    return this.toPositiveInt(
+      usage?.completion_tokens_details?.reasoning_tokens ??
+        usage?.output_tokens_details?.reasoning_tokens,
+    );
+  }
+
+  private getCachedInputTokens(
+    completion: OpenAI.Chat.Completions.ChatCompletion,
+  ) {
+    const usage = completion.usage as
+      | (OpenAI.Completions.CompletionUsage & {
+          prompt_tokens_details?: { cached_tokens?: number };
+          input_tokens_details?: { cached_tokens?: number };
+          cached_tokens?: number;
+          cache_hit_tokens?: number;
+        })
+      | undefined;
+    return this.toPositiveInt(
+      usage?.prompt_tokens_details?.cached_tokens ??
+        usage?.input_tokens_details?.cached_tokens ??
+        usage?.cached_tokens ??
+        usage?.cache_hit_tokens,
+    );
   }
 
   private getProviderConfig(
@@ -1051,6 +1091,30 @@ export class AiService {
     }
 
     return images.map((image) => {
+      if (image.url) {
+        if (image.base64) {
+          throw new BadRequestException(
+            "image must contain either base64 or url",
+          );
+        }
+
+        const url = this.normalizeImageUrl(image.url);
+        return {
+          id: image.id,
+          mimeType: image.mimeType,
+          url,
+          width: image.width,
+          height: image.height,
+          localScore: image.localScore,
+          clusterId: image.clusterId,
+          flags: image.flags,
+        };
+      }
+
+      if (!image.base64) {
+        throw new BadRequestException("image must contain base64 or url");
+      }
+
       const base64 = image.base64.includes(",")
         ? image.base64.split(",").pop() || ""
         : image.base64;
@@ -1080,6 +1144,29 @@ export class AiService {
     });
   }
 
+  private normalizeImageUrl(url: string) {
+    let parsed: URL;
+    try {
+      parsed = new URL(url);
+    } catch {
+      throw new BadRequestException("image url is invalid");
+    }
+
+    if (parsed.protocol !== "https:") {
+      throw new BadRequestException("image url must use https");
+    }
+
+    return parsed.toString();
+  }
+
+  private getModelImageUrl(image: UploadedImage) {
+    if (image.url) return image.url;
+    if (!image.buffer) {
+      throw new BadRequestException("image is empty");
+    }
+    return `data:${image.mimeType};base64,${image.buffer.toString("base64")}`;
+  }
+
   private recordUsage(params: {
     requestId: string;
     userId: string;
@@ -1089,7 +1176,9 @@ export class AiService {
     status: AiUsageStatusType;
     latencyMs: number;
     inputTokens?: number;
+    cachedInputTokens?: number;
     outputTokens?: number;
+    reasoningTokens?: number;
     costEstimate?: string;
     errorMessage?: string;
     metadata?: AiUsageMetadata;
@@ -1102,7 +1191,9 @@ export class AiService {
         feature: params.feature,
         model: params.model,
         inputTokens: params.inputTokens,
+        cachedInputTokens: params.cachedInputTokens,
         outputTokens: params.outputTokens,
+        reasoningTokens: params.reasoningTokens,
         costEstimate: params.costEstimate,
         status: params.status,
         latencyMs: params.latencyMs,
@@ -1128,11 +1219,29 @@ export class AiService {
 
   private estimateBaseTokenCost(
     inputTokens: number | undefined,
+    cachedInputTokens: number | undefined,
     outputTokens: number | undefined,
     pricing: AiModelPricing | undefined,
   ) {
-    const inputPrice = pricing?.base?.input;
-    const outputPrice = pricing?.base?.output;
+    const matchedTier = pricing?.tiers?.find((tier) => {
+      if (typeof inputTokens !== "number") return false;
+      if (
+        typeof tier.minInputTokens === "number" &&
+        inputTokens < tier.minInputTokens
+      ) {
+        return false;
+      }
+      if (
+        typeof tier.maxInputTokens === "number" &&
+        inputTokens > tier.maxInputTokens
+      ) {
+        return false;
+      }
+      return true;
+    });
+    const inputPrice = matchedTier?.input ?? pricing?.input;
+    const cachedInputPrice = matchedTier?.cachedInput ?? pricing?.cachedInput;
+    const outputPrice = matchedTier?.output ?? pricing?.output;
     if (
       typeof inputTokens !== "number" ||
       typeof outputTokens !== "number" ||
@@ -1142,9 +1251,22 @@ export class AiService {
       return undefined;
     }
 
+    const billableCachedInputTokens =
+      typeof cachedInputTokens === "number"
+        ? Math.min(Math.max(cachedInputTokens, 0), inputTokens)
+        : 0;
+    const normalInputTokens = inputTokens - billableCachedInputTokens;
     const cost =
-      (inputTokens / 1000) * inputPrice + (outputTokens / 1000) * outputPrice;
+      (normalInputTokens / 1000) * inputPrice +
+      (billableCachedInputTokens / 1000) * (cachedInputPrice ?? inputPrice) +
+      (outputTokens / 1000) * outputPrice;
     return cost > 0 ? cost.toFixed(6) : undefined;
+  }
+
+  private toPositiveInt(value: unknown) {
+    return typeof value === "number" && Number.isFinite(value) && value > 0
+      ? Math.floor(value)
+      : undefined;
   }
 
   private async recordUsageSafely(

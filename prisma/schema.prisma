@@ -99,9 +99,11 @@ model AiUsage {
   provider     String
   feature      String        @db.VarChar(32)
   model        String
-  inputTokens  Int?
-  outputTokens Int?
-  costEstimate Decimal?      @db.Decimal(12, 6)
+  inputTokens       Int?
+  cachedInputTokens Int?
+  outputTokens      Int?
+  reasoningTokens   Int?
+  costEstimate      Decimal?      @db.Decimal(12, 6)
   status       String        @db.VarChar(32)
   latencyMs    Int?
   errorMessage String?       @db.Text

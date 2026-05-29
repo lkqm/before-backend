@@ -12,8 +12,3 @@ wechat:
 auth:
   tokenSecret: AUTH_TOKEN_SECRET
   tokenTtlMs: AUTH_TOKEN_TTL_MS
-
-ai:
-  providers:
-    doubao:
-      apiKey: DOUBAO_API_KEY
