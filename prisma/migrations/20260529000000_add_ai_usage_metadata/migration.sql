@@ -1,1 +1,0 @@
-ALTER TABLE `AiUsage` ADD COLUMN `metadata` JSON NULL;

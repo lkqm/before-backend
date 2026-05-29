@@ -3,10 +3,10 @@ import { ApiProperty } from "@nestjs/swagger";
 export class FeatureSummaryDto {
   @ApiProperty({
     description: "AI 功能类型",
-    enum: ["ai", "caption", "image_rank", "pick_image", "rewrite"],
+    enum: ["ai", "caption", "rank", "pick", "rewrite"],
     example: "caption",
   })
-  feature!: "ai" | "caption" | "image_rank" | "pick_image" | "rewrite";
+  feature!: "ai" | "caption" | "rank" | "pick" | "rewrite";
 
   @ApiProperty({ description: "请求总数", example: 12 })
   total!: number;

@@ -9,8 +9,8 @@ import {
 export const billingInterestFeatures = [
   AiFeature.rewrite,
   AiFeature.caption,
-  AiFeature.image_rank,
-  AiFeature.pick_image,
+  AiFeature.rank,
+  AiFeature.pick,
 ] as const;
 
 export type BillingInterestFeature = Extract<

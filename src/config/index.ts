@@ -40,11 +40,6 @@ function normalizeConfig(config: AppConfig) {
     10,
   );
 
-  for (const provider of Object.values(config.ai.providers)) {
-    provider.timeoutMs = toPositiveInt(provider.timeoutMs, 15000);
-    provider.imageTimeoutMs = toPositiveInt(provider.imageTimeoutMs, 30000);
-    provider.maxRetries = toNonNegativeInt(provider.maxRetries, 0);
-  }
 }
 
 function toBoolean(value: unknown, defaultValue: boolean) {
@@ -70,6 +65,7 @@ export const appConfig = resolveConfig();
 export type {
   AiCapability,
   AiModelConfig,
+  AiModelPricing,
   AiProviderConfig,
   AiStrategy,
   AiTaskConfig,

@@ -12,11 +12,12 @@ import OpenAI from "openai";
 import { AppErrorCode, AppException } from "../../common/errors/app.exception";
 import { PrismaService } from "../../common/prisma/prisma.service";
 import {
-  appConfig,
+  type AiModelPricing,
   type AiTaskName,
   type ResolvedAiCandidate,
 } from "../../config";
 import { QuotaService } from "../quota/quota.service";
+import { AiConfigService } from "./ai-config.service";
 import {
   AiFeature,
   AiUsageStatus,
@@ -64,6 +65,7 @@ export class AiService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly quotaService: QuotaService,
+    private readonly aiConfigService: AiConfigService,
   ) {}
 
   async rewrite(userId: string, dto: RewriteDto) {
@@ -76,7 +78,7 @@ export class AiService {
       userId,
       feature: AiFeature.rewrite,
       taskName: "rewrite",
-      systemPrompt: this.getTaskSystemPrompt("rewrite"),
+      systemPrompt: await this.aiConfigService.getTaskSystemPrompt("rewrite"),
       userPrompt: `请把下面这段话改写成 3 条朋友圈文案：\n\n${dto.text}`,
       outputFormat:
         '{"items":[{"style":"natural","text":"..."},{"style":"daily","text":"..."},{"style":"minimal","text":"..."}]}',
@@ -93,16 +95,13 @@ export class AiService {
   }
 
   async caption(userId: string, dto: CaptionDto) {
+    const taskConfig = await this.aiConfigService.getTaskConfig("caption");
     const hasImages = Boolean(dto.images?.length);
     if (!hasImages) {
       throw new BadRequestException("images is required");
     }
 
-    const images = this.decodeImages(
-      dto.images ?? [],
-      1,
-      appConfig.ai.tasks.caption.maxImages ?? 4,
-    );
+    const images = this.decodeImages(dto.images ?? [], 1, taskConfig.maxImages);
     const userNote = dto.userNote?.trim();
     const quota = await this.quotaService.assertAndConsume(
       userId,
@@ -111,6 +110,7 @@ export class AiService {
     const result = await this.runImageCaptionGeneration({
       userId,
       images,
+      systemPrompt: await this.aiConfigService.getTaskSystemPrompt("caption"),
       scene: dto.scene?.trim(),
       userNote,
       locationLabel: dto.locationLabel?.trim(),
@@ -132,11 +132,12 @@ export class AiService {
 
     const quota = await this.quotaService.assertAndConsume(
       userId,
-      AiFeature.image_rank,
+      AiFeature.rank,
     );
     const result = await this.runImageRankGeneration({
       userId,
       images,
+      systemPrompt: await this.aiConfigService.getTaskSystemPrompt("rank"),
       metadata: this.createUsageMetadata({
         imageCount: images.length,
       }),
@@ -149,21 +150,19 @@ export class AiService {
   }
 
   async pickImages(userId: string, dto: PickImagesDto) {
-    const images = this.decodeImages(
-      dto.images,
-      2,
-      appConfig.ai.tasks.pickImage.maxImages ?? 12,
-    );
+    const taskConfig = await this.aiConfigService.getTaskConfig("pick");
+    const images = this.decodeImages(dto.images, 2, taskConfig.maxImages);
     const userNote = dto.userNote?.trim();
 
     const quota = await this.quotaService.assertAndConsume(
       userId,
-      AiFeature.pick_image,
+      AiFeature.pick,
     );
     const result = await this.runPickImagesGeneration({
       userId,
       images,
       originalCount: dto.originalCount,
+      systemPrompt: await this.aiConfigService.getTaskSystemPrompt("pick"),
       userNote,
       locationLabel: dto.locationLabel?.trim(),
       timeLabel: dto.timeLabel?.trim(),
@@ -291,6 +290,11 @@ export class AiService {
         latencyMs: Date.now() - startedAt,
         inputTokens: completion.usage?.prompt_tokens,
         outputTokens: completion.usage?.completion_tokens,
+        costEstimate: this.estimateBaseTokenCost(
+          completion.usage?.prompt_tokens,
+          completion.usage?.completion_tokens,
+          candidate.model.pricing,
+        ),
         metadata: params.metadata,
       });
       const usageRecordLatencyMs = Date.now() - usageRecordStartedAt;
@@ -328,16 +332,17 @@ export class AiService {
   private async runImageRankGeneration(params: {
     userId: string;
     images: UploadedImage[];
+    systemPrompt: string;
     metadata?: AiUsageMetadata;
   }): Promise<ImageRankResult & { aiUsageId: string }> {
     const requestId = `req_${randomUUID()}`;
     const startedAt = Date.now();
     const candidate = await this.pickCandidateOrRefund({
-      taskName: "imageRank",
+      taskName: "rank",
       requestId,
       startedAt,
       userId: params.userId,
-      feature: AiFeature.image_rank,
+      feature: AiFeature.rank,
     });
     const providerConfig = this.getProviderConfig(candidate, "image");
 
@@ -345,7 +350,7 @@ export class AiService {
       await this.recordFailedUsageAndRefund({
         requestId,
         userId: params.userId,
-        feature: AiFeature.image_rank,
+        feature: AiFeature.rank,
         provider: providerConfig.provider,
         model: providerConfig.model,
         status: AiUsageStatus.failed,
@@ -402,7 +407,7 @@ export class AiService {
         messages: [
           {
             role: "system",
-            content: this.getTaskSystemPrompt("imageRank"),
+            content: params.systemPrompt,
           },
           {
             role: "user",
@@ -419,13 +424,18 @@ export class AiService {
       const usage = await this.recordUsage({
         requestId,
         userId: params.userId,
-        feature: AiFeature.image_rank,
+        feature: AiFeature.rank,
         provider: providerConfig.provider,
         model: providerConfig.model,
         status: AiUsageStatus.success,
         latencyMs: Date.now() - startedAt,
         inputTokens: completion.usage?.prompt_tokens,
         outputTokens: completion.usage?.completion_tokens,
+        costEstimate: this.estimateBaseTokenCost(
+          completion.usage?.prompt_tokens,
+          completion.usage?.completion_tokens,
+          candidate.model.pricing,
+        ),
         metadata: params.metadata,
       });
 
@@ -440,7 +450,7 @@ export class AiService {
       await this.recordFailedUsageAndRefund({
         requestId,
         userId: params.userId,
-        feature: AiFeature.image_rank,
+        feature: AiFeature.rank,
         provider: providerConfig.provider,
         model: providerConfig.model,
         status: AiUsageStatus.failed,
@@ -456,6 +466,7 @@ export class AiService {
     userId: string;
     images: UploadedImage[];
     originalCount: number;
+    systemPrompt: string;
     userNote?: string;
     locationLabel?: string;
     timeLabel?: string;
@@ -464,11 +475,11 @@ export class AiService {
     const requestId = `req_${randomUUID()}`;
     const startedAt = Date.now();
     const candidate = await this.pickCandidateOrRefund({
-      taskName: "pickImage",
+      taskName: "pick",
       requestId,
       startedAt,
       userId: params.userId,
-      feature: AiFeature.pick_image,
+      feature: AiFeature.pick,
     });
     const providerConfig = this.getProviderConfig(candidate, "image");
 
@@ -476,7 +487,7 @@ export class AiService {
       await this.recordFailedUsageAndRefund({
         requestId,
         userId: params.userId,
-        feature: AiFeature.pick_image,
+        feature: AiFeature.pick,
         provider: providerConfig.provider,
         model: providerConfig.model,
         status: AiUsageStatus.failed,
@@ -560,7 +571,7 @@ export class AiService {
         messages: [
           {
             role: "system",
-            content: this.getTaskSystemPrompt("pickImage"),
+            content: params.systemPrompt,
           },
           {
             role: "user",
@@ -579,13 +590,18 @@ export class AiService {
       const usage = await this.recordUsage({
         requestId,
         userId: params.userId,
-        feature: AiFeature.pick_image,
+        feature: AiFeature.pick,
         provider: providerConfig.provider,
         model: providerConfig.model,
         status: AiUsageStatus.success,
         latencyMs: Date.now() - startedAt,
         inputTokens: completion.usage?.prompt_tokens,
         outputTokens: completion.usage?.completion_tokens,
+        costEstimate: this.estimateBaseTokenCost(
+          completion.usage?.prompt_tokens,
+          completion.usage?.completion_tokens,
+          candidate.model.pricing,
+        ),
         metadata: params.metadata,
       });
 
@@ -604,7 +620,7 @@ export class AiService {
       await this.recordFailedUsageAndRefund({
         requestId,
         userId: params.userId,
-        feature: AiFeature.pick_image,
+        feature: AiFeature.pick,
         provider: providerConfig.provider,
         model: providerConfig.model,
         status: AiUsageStatus.failed,
@@ -619,6 +635,7 @@ export class AiService {
   private async runImageCaptionGeneration(params: {
     userId: string;
     images: UploadedImage[];
+    systemPrompt: string;
     scene?: string;
     userNote?: string;
     locationLabel?: string;
@@ -704,7 +721,7 @@ export class AiService {
         messages: [
           {
             role: "system",
-            content: this.getTaskSystemPrompt("caption"),
+            content: params.systemPrompt,
           },
           {
             role: "user",
@@ -728,6 +745,11 @@ export class AiService {
         latencyMs: Date.now() - startedAt,
         inputTokens: completion.usage?.prompt_tokens,
         outputTokens: completion.usage?.completion_tokens,
+        costEstimate: this.estimateBaseTokenCost(
+          completion.usage?.prompt_tokens,
+          completion.usage?.completion_tokens,
+          candidate.model.pricing,
+        ),
         metadata: params.metadata,
       });
       const usageRecordLatencyMs = Date.now() - usageRecordStartedAt;
@@ -776,14 +798,6 @@ export class AiService {
     });
   }
 
-  private getTaskSystemPrompt(taskName: AiTaskName) {
-    const systemPrompt = appConfig.ai.tasks[taskName].systemPrompt?.trim();
-    if (!systemPrompt) {
-      throw new Error(`ai task ${taskName} systemPrompt is not configured`);
-    }
-    return systemPrompt;
-  }
-
   private getReasoningTokens(
     completion: OpenAI.Chat.Completions.ChatCompletion,
   ) {
@@ -812,48 +826,6 @@ export class AiService {
     };
   }
 
-  private pickCandidate(taskName: AiTaskName) {
-    const task = appConfig.ai.tasks[taskName];
-    const candidates: ResolvedAiCandidate[] = Object.entries(
-      appConfig.ai.providers,
-    ).flatMap(([providerName, provider]) =>
-      Object.entries(provider.models)
-        .filter(
-          ([, model]) =>
-            model.enabled !== false &&
-            model.capabilities.includes(task.mode) &&
-            provider.apiKey,
-        )
-        .map(([modelName, model]) => ({
-          providerName,
-          modelName,
-          provider,
-          model,
-          task,
-        })),
-    );
-
-    if (candidates.length === 0) {
-      throw new Error(`no ai candidate for task ${taskName}`);
-    }
-
-    const strategy = task.strategy ?? appConfig.ai.strategy;
-    if (strategy === "first-available") {
-      return candidates[0];
-    }
-
-    const totalWeight = candidates.reduce(
-      (sum, candidate) => sum + candidate.model.weight,
-      0,
-    );
-    let cursor = Math.random() * totalWeight;
-    for (const candidate of candidates) {
-      cursor -= candidate.model.weight;
-      if (cursor <= 0) return candidate;
-    }
-    return candidates[candidates.length - 1];
-  }
-
   private async pickCandidateOrRefund(params: {
     taskName: AiTaskName;
     requestId: string;
@@ -862,7 +834,7 @@ export class AiService {
     feature: AiFeatureType;
   }) {
     try {
-      return this.pickCandidate(params.taskName);
+      return await this.aiConfigService.pickCandidate(params.taskName);
     } catch (error) {
       await this.recordFailedUsageAndRefund({
         requestId: params.requestId,
@@ -1118,6 +1090,7 @@ export class AiService {
     latencyMs: number;
     inputTokens?: number;
     outputTokens?: number;
+    costEstimate?: string;
     errorMessage?: string;
     metadata?: AiUsageMetadata;
   }) {
@@ -1130,6 +1103,7 @@ export class AiService {
         model: params.model,
         inputTokens: params.inputTokens,
         outputTokens: params.outputTokens,
+        costEstimate: params.costEstimate,
         status: params.status,
         latencyMs: params.latencyMs,
         errorMessage: this.truncateErrorMessage(params.errorMessage),
@@ -1150,6 +1124,27 @@ export class AiService {
     }
 
     return Object.keys(normalized).length > 0 ? normalized : undefined;
+  }
+
+  private estimateBaseTokenCost(
+    inputTokens: number | undefined,
+    outputTokens: number | undefined,
+    pricing: AiModelPricing | undefined,
+  ) {
+    const inputPrice = pricing?.base?.input;
+    const outputPrice = pricing?.base?.output;
+    if (
+      typeof inputTokens !== "number" ||
+      typeof outputTokens !== "number" ||
+      typeof inputPrice !== "number" ||
+      typeof outputPrice !== "number"
+    ) {
+      return undefined;
+    }
+
+    const cost =
+      (inputTokens / 1000) * inputPrice + (outputTokens / 1000) * outputPrice;
+    return cost > 0 ? cost.toFixed(6) : undefined;
   }
 
   private async recordUsageSafely(

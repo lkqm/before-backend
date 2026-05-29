@@ -1,8 +1,8 @@
 export enum AiFeature {
   ai = "ai",
   caption = "caption",
-  image_rank = "image_rank",
-  pick_image = "pick_image",
+  rank = "rank",
+  pick = "pick",
   rewrite = "rewrite",
 }
 

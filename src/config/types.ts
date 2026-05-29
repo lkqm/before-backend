@@ -1,8 +1,4 @@
-export type AiTaskName =
-  | "rewrite"
-  | "caption"
-  | "imageRank"
-  | "pickImage";
+export type AiTaskName = "rewrite" | "caption" | "rank" | "pick";
 
 export type AiCapability = "text" | "image";
 
@@ -10,12 +6,34 @@ export type AiProviderType = "openai-compatible";
 
 export type AiStrategy = "weighted-random" | "first-available";
 
+export type AiModelPricing = {
+  currency?: string;
+  unit?: "1k_tokens";
+  base?: {
+    input?: number;
+    output?: number;
+  };
+  cachedInput?: number;
+  reasoningOutput?: number;
+  imageInput?: {
+    unit?: "image";
+    price?: number;
+  };
+  tiers?: Array<{
+    key: string;
+    label?: string;
+    input?: number;
+    output?: number;
+  }>;
+};
+
 export type AiModelConfig = {
   id: string;
   capabilities: AiCapability[];
   weight: number;
   supportsJsonMode: boolean;
   supportsThinking: boolean;
+  pricing?: AiModelPricing;
   enabled?: boolean;
 };
 
@@ -70,7 +88,7 @@ export type AppConfig = {
   quota: {
     signupAiCredits: number;
   };
-  ai: {
+  ai?: {
     strategy: AiStrategy;
     providers: Record<string, AiProviderConfig>;
     tasks: Record<AiTaskName, AiTaskConfig>;

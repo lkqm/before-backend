@@ -23,6 +23,75 @@ model User {
   billingInterests BillingInterest[]
 }
 
+model AiProvider {
+  id             String    @id @default(cuid())
+  key            String    @unique @db.VarChar(64)
+  type           String    @db.VarChar(64)
+  baseUrl        String?
+  apiKey         String?   @db.Text
+  timeoutMs      Int
+  imageTimeoutMs Int
+  maxRetries     Int
+  enabled        Boolean   @default(true)
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  models AiModel[]
+}
+
+model AiModel {
+  id               String    @id @default(cuid())
+  providerId       String
+  key              String    @db.VarChar(64)
+  modelId          String
+  capabilities     Json
+  supportsJsonMode Boolean   @default(false)
+  supportsThinking Boolean   @default(false)
+  pricing          Json?
+  enabled          Boolean   @default(true)
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  provider   AiProvider    @relation(fields: [providerId], references: [id], onDelete: Cascade)
+  taskModels AiTaskModel[]
+
+  @@unique([providerId, key])
+  @@unique([providerId, modelId])
+}
+
+model AiTask {
+  id           String    @id @default(cuid())
+  key          String    @unique @db.VarChar(64)
+  mode         String    @db.VarChar(32)
+  strategy     String?   @db.VarChar(32)
+  maxImages    Int?
+  maxTokens    Int?
+  temperature  Float?
+  systemPrompt String?   @db.Text
+  thinking     Boolean   @default(false)
+  jsonMode     Boolean   @default(false)
+  enabled      Boolean   @default(true)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  taskModels AiTaskModel[]
+}
+
+model AiTaskModel {
+  id        String   @id @default(cuid())
+  taskId    String
+  modelId   String
+  weight    Int      @default(100)
+  enabled   Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  task  AiTask  @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  model AiModel @relation(fields: [modelId], references: [id], onDelete: Cascade)
+
+  @@unique([taskId, modelId])
+}
+
 model AiUsage {
   id           String        @id @default(cuid())
   requestId    String        @unique
