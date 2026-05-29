@@ -36,6 +36,7 @@ model AiUsage {
   status       String        @db.VarChar(32)
   latencyMs    Int?
   errorMessage String?       @db.Text
+  metadata     Json?
   createdAt    DateTime      @default(now())
 
   user      User         @relation(fields: [userId], references: [id], onDelete: Cascade)

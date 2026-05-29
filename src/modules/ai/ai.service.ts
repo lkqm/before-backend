@@ -40,6 +40,12 @@ type AiResult = {
   imageSummary?: string;
 };
 
+type AiUsageMetadata = {
+  textLength?: number;
+  imageCount?: number;
+  originalCount?: number;
+};
+
 type ChatContentPart =
   | { type: "text"; text: string }
   | { type: "image_url"; image_url: { url: string } };
@@ -61,6 +67,7 @@ export class AiService {
   ) {}
 
   async rewrite(userId: string, dto: RewriteDto) {
+    const text = dto.text.trim();
     const quota = await this.quotaService.assertAndConsume(
       userId,
       AiFeature.rewrite,
@@ -73,6 +80,9 @@ export class AiService {
       userPrompt: `请把下面这段话改写成 3 条朋友圈文案：\n\n${dto.text}`,
       outputFormat:
         '{"items":[{"style":"natural","text":"..."},{"style":"daily","text":"..."},{"style":"minimal","text":"..."}]}',
+      metadata: this.createUsageMetadata({
+        textLength: text.length,
+      }),
     });
 
     return {
@@ -88,21 +98,27 @@ export class AiService {
       throw new BadRequestException("images is required");
     }
 
+    const images = this.decodeImages(
+      dto.images ?? [],
+      1,
+      appConfig.ai.tasks.caption.maxImages ?? 4,
+    );
+    const userNote = dto.userNote?.trim();
     const quota = await this.quotaService.assertAndConsume(
       userId,
       AiFeature.caption,
     );
     const result = await this.runImageCaptionGeneration({
       userId,
-      images: this.decodeImages(
-        dto.images ?? [],
-        1,
-        appConfig.ai.tasks.caption.maxImages ?? 4,
-      ),
+      images,
       scene: dto.scene?.trim(),
-      userNote: dto.userNote?.trim(),
+      userNote,
       locationLabel: dto.locationLabel?.trim(),
       timeLabel: dto.timeLabel?.trim(),
+      metadata: this.createUsageMetadata({
+        textLength: userNote?.length,
+        imageCount: images.length,
+      }),
     });
 
     return {
@@ -121,6 +137,9 @@ export class AiService {
     const result = await this.runImageRankGeneration({
       userId,
       images,
+      metadata: this.createUsageMetadata({
+        imageCount: images.length,
+      }),
     });
 
     return {
@@ -135,6 +154,7 @@ export class AiService {
       2,
       appConfig.ai.tasks.pickImage.maxImages ?? 12,
     );
+    const userNote = dto.userNote?.trim();
 
     const quota = await this.quotaService.assertAndConsume(
       userId,
@@ -144,9 +164,14 @@ export class AiService {
       userId,
       images,
       originalCount: dto.originalCount,
-      userNote: dto.userNote?.trim(),
+      userNote,
       locationLabel: dto.locationLabel?.trim(),
       timeLabel: dto.timeLabel?.trim(),
+      metadata: this.createUsageMetadata({
+        textLength: userNote?.length,
+        imageCount: images.length,
+        originalCount: dto.originalCount,
+      }),
     });
 
     return {
@@ -197,14 +222,21 @@ export class AiService {
     systemPrompt: string;
     userPrompt: string;
     outputFormat?: string;
+    metadata?: AiUsageMetadata;
   }): Promise<AiResult & { aiUsageId: string }> {
     const requestId = `req_${randomUUID()}`;
     const startedAt = Date.now();
-    const candidate = this.pickCandidate(params.taskName);
+    const candidate = await this.pickCandidateOrRefund({
+      taskName: params.taskName,
+      requestId,
+      startedAt,
+      userId: params.userId,
+      feature: params.feature,
+    });
     const providerConfig = this.getProviderConfig(candidate);
 
     if (!providerConfig.apiKey) {
-      const usage = await this.recordUsage({
+      await this.recordFailedUsageAndRefund({
         requestId,
         userId: params.userId,
         feature: params.feature,
@@ -213,6 +245,7 @@ export class AiService {
         status: AiUsageStatus.failed,
         latencyMs: Date.now() - startedAt,
         errorMessage: "AI_API_KEY is not configured",
+        metadata: params.metadata,
       });
       throw new AppException(
         AppErrorCode.AiProviderNotConfigured,
@@ -258,6 +291,7 @@ export class AiService {
         latencyMs: Date.now() - startedAt,
         inputTokens: completion.usage?.prompt_tokens,
         outputTokens: completion.usage?.completion_tokens,
+        metadata: params.metadata,
       });
       const usageRecordLatencyMs = Date.now() - usageRecordStartedAt;
 
@@ -276,7 +310,7 @@ export class AiService {
       this.logger.warn(
         `AI text generation failed requestId=${requestId} feature=${params.feature} provider=${providerConfig.provider} model=${providerConfig.model} status=${status} totalLatencyMs=${Date.now() - startedAt} error=${this.formatErrorForLog(error)}`,
       );
-      await this.recordUsageSafely({
+      await this.recordFailedUsageAndRefund({
         requestId,
         userId: params.userId,
         feature: params.feature,
@@ -285,6 +319,7 @@ export class AiService {
         status,
         latencyMs: Date.now() - startedAt,
         errorMessage: error instanceof Error ? error.message : "unknown error",
+        metadata: params.metadata,
       });
       throw this.toAiException(error);
     }
@@ -293,14 +328,21 @@ export class AiService {
   private async runImageRankGeneration(params: {
     userId: string;
     images: UploadedImage[];
+    metadata?: AiUsageMetadata;
   }): Promise<ImageRankResult & { aiUsageId: string }> {
     const requestId = `req_${randomUUID()}`;
     const startedAt = Date.now();
-    const candidate = this.pickCandidate("imageRank");
+    const candidate = await this.pickCandidateOrRefund({
+      taskName: "imageRank",
+      requestId,
+      startedAt,
+      userId: params.userId,
+      feature: AiFeature.image_rank,
+    });
     const providerConfig = this.getProviderConfig(candidate, "image");
 
     if (!providerConfig.apiKey) {
-      const usage = await this.recordUsage({
+      await this.recordFailedUsageAndRefund({
         requestId,
         userId: params.userId,
         feature: AiFeature.image_rank,
@@ -309,6 +351,7 @@ export class AiService {
         status: AiUsageStatus.failed,
         latencyMs: Date.now() - startedAt,
         errorMessage: "AI_API_KEY is not configured",
+        metadata: params.metadata,
       });
       throw new AppException(
         AppErrorCode.AiProviderNotConfigured,
@@ -383,6 +426,7 @@ export class AiService {
         latencyMs: Date.now() - startedAt,
         inputTokens: completion.usage?.prompt_tokens,
         outputTokens: completion.usage?.completion_tokens,
+        metadata: params.metadata,
       });
 
       return {
@@ -393,7 +437,7 @@ export class AiService {
       this.logger.warn(
         `AI image rank generation failed requestId=${requestId} provider=${providerConfig.provider} model=${providerConfig.model} totalLatencyMs=${Date.now() - startedAt} error=${this.formatErrorForLog(error)}`,
       );
-      await this.recordUsageSafely({
+      await this.recordFailedUsageAndRefund({
         requestId,
         userId: params.userId,
         feature: AiFeature.image_rank,
@@ -402,6 +446,7 @@ export class AiService {
         status: AiUsageStatus.failed,
         latencyMs: Date.now() - startedAt,
         errorMessage: error instanceof Error ? error.message : "unknown error",
+        metadata: params.metadata,
       });
       throw this.toAiException(error);
     }
@@ -414,14 +459,21 @@ export class AiService {
     userNote?: string;
     locationLabel?: string;
     timeLabel?: string;
+    metadata?: AiUsageMetadata;
   }): Promise<PickImagesResult & { aiUsageId: string }> {
     const requestId = `req_${randomUUID()}`;
     const startedAt = Date.now();
-    const candidate = this.pickCandidate("pickImage");
+    const candidate = await this.pickCandidateOrRefund({
+      taskName: "pickImage",
+      requestId,
+      startedAt,
+      userId: params.userId,
+      feature: AiFeature.pick_image,
+    });
     const providerConfig = this.getProviderConfig(candidate, "image");
 
     if (!providerConfig.apiKey) {
-      await this.recordUsage({
+      await this.recordFailedUsageAndRefund({
         requestId,
         userId: params.userId,
         feature: AiFeature.pick_image,
@@ -430,6 +482,7 @@ export class AiService {
         status: AiUsageStatus.failed,
         latencyMs: Date.now() - startedAt,
         errorMessage: "AI_API_KEY is not configured",
+        metadata: params.metadata,
       });
       throw new AppException(
         AppErrorCode.AiProviderNotConfigured,
@@ -474,7 +527,9 @@ export class AiService {
           type: "text",
           text: [
             `图片 ${index + 1}，imageId: ${image.id}`,
-            image.width && image.height ? `尺寸：${image.width}x${image.height}` : "",
+            image.width && image.height
+              ? `尺寸：${image.width}x${image.height}`
+              : "",
             image.localScore !== undefined
               ? `本地质量分：${image.localScore.toFixed(2)}`
               : "",
@@ -531,6 +586,7 @@ export class AiService {
         latencyMs: Date.now() - startedAt,
         inputTokens: completion.usage?.prompt_tokens,
         outputTokens: completion.usage?.completion_tokens,
+        metadata: params.metadata,
       });
 
       this.logger.log(
@@ -545,7 +601,7 @@ export class AiService {
       this.logger.warn(
         `AI image pick generation failed requestId=${requestId} provider=${providerConfig.provider} model=${providerConfig.model} totalLatencyMs=${Date.now() - startedAt} error=${this.formatErrorForLog(error)}`,
       );
-      await this.recordUsageSafely({
+      await this.recordFailedUsageAndRefund({
         requestId,
         userId: params.userId,
         feature: AiFeature.pick_image,
@@ -554,6 +610,7 @@ export class AiService {
         status: AiUsageStatus.failed,
         latencyMs: Date.now() - startedAt,
         errorMessage: error instanceof Error ? error.message : "unknown error",
+        metadata: params.metadata,
       });
       throw this.toAiException(error);
     }
@@ -566,14 +623,21 @@ export class AiService {
     userNote?: string;
     locationLabel?: string;
     timeLabel?: string;
+    metadata?: AiUsageMetadata;
   }): Promise<AiResult & { aiUsageId: string }> {
     const requestId = `req_${randomUUID()}`;
     const startedAt = Date.now();
-    const candidate = this.pickCandidate("caption");
+    const candidate = await this.pickCandidateOrRefund({
+      taskName: "caption",
+      requestId,
+      startedAt,
+      userId: params.userId,
+      feature: AiFeature.caption,
+    });
     const providerConfig = this.getProviderConfig(candidate, "image");
 
     if (!providerConfig.apiKey) {
-      const usage = await this.recordUsage({
+      await this.recordFailedUsageAndRefund({
         requestId,
         userId: params.userId,
         feature: AiFeature.caption,
@@ -582,6 +646,7 @@ export class AiService {
         status: AiUsageStatus.failed,
         latencyMs: Date.now() - startedAt,
         errorMessage: "AI_API_KEY is not configured",
+        metadata: params.metadata,
       });
       throw new AppException(
         AppErrorCode.AiProviderNotConfigured,
@@ -663,6 +728,7 @@ export class AiService {
         latencyMs: Date.now() - startedAt,
         inputTokens: completion.usage?.prompt_tokens,
         outputTokens: completion.usage?.completion_tokens,
+        metadata: params.metadata,
       });
       const usageRecordLatencyMs = Date.now() - usageRecordStartedAt;
 
@@ -678,7 +744,7 @@ export class AiService {
       this.logger.warn(
         `AI image caption generation failed requestId=${requestId} provider=${providerConfig.provider} model=${providerConfig.model} totalLatencyMs=${Date.now() - startedAt} error=${this.formatErrorForLog(error)}`,
       );
-      await this.recordUsageSafely({
+      await this.recordFailedUsageAndRefund({
         requestId,
         userId: params.userId,
         feature: AiFeature.caption,
@@ -687,6 +753,7 @@ export class AiService {
         status: AiUsageStatus.failed,
         latencyMs: Date.now() - startedAt,
         errorMessage: error instanceof Error ? error.message : "unknown error",
+        metadata: params.metadata,
       });
       throw this.toAiException(error);
     }
@@ -787,6 +854,30 @@ export class AiService {
     return candidates[candidates.length - 1];
   }
 
+  private async pickCandidateOrRefund(params: {
+    taskName: AiTaskName;
+    requestId: string;
+    startedAt: number;
+    userId: string;
+    feature: AiFeatureType;
+  }) {
+    try {
+      return this.pickCandidate(params.taskName);
+    } catch (error) {
+      await this.recordFailedUsageAndRefund({
+        requestId: params.requestId,
+        userId: params.userId,
+        feature: params.feature,
+        provider: "unknown",
+        model: "unknown",
+        status: AiUsageStatus.failed,
+        latencyMs: Date.now() - params.startedAt,
+        errorMessage: error instanceof Error ? error.message : "unknown error",
+      });
+      throw this.toAiException(error);
+    }
+  }
+
   private shouldUseJsonMode(candidate: ResolvedAiCandidate) {
     return candidate.task.jsonMode && candidate.model.supportsJsonMode;
   }
@@ -801,15 +892,13 @@ export class AiService {
     }
 
     const parsed = JSON.parse(content) as AiResult;
-    if (!Array.isArray(parsed.items) || parsed.items.length === 0) {
+    const items = this.parseTextItems(parsed.items);
+    if (items.length === 0) {
       throw new Error("invalid ai response");
     }
 
     return {
-      items: parsed.items.slice(0, 3).map((item) => ({
-        style: item.style,
-        text: item.text,
-      })),
+      items,
     };
   }
 
@@ -863,16 +952,7 @@ export class AiService {
     }
 
     const parsed = JSON.parse(content) as AiResult;
-    const validStyles = new Set(["natural", "daily", "minimal"]);
-    const items = Array.isArray(parsed.items)
-      ? parsed.items
-          .filter((item) => validStyles.has(item.style) && item.text)
-          .slice(0, 3)
-          .map((item) => ({
-            style: item.style,
-            text: String(item.text).slice(0, 120),
-          }))
-      : [];
+    const items = this.parseTextItems(parsed.items);
 
     if (items.length === 0) {
       throw new Error("invalid ai response");
@@ -882,6 +962,31 @@ export class AiService {
       imageSummary: String(parsed.imageSummary || "").slice(0, 30),
       items,
     };
+  }
+
+  private parseTextItems(items: unknown): CaptionItem[] {
+    const validStyles = new Set(["natural", "daily", "minimal"]);
+    if (!Array.isArray(items)) return [];
+
+    return items
+      .map((item) => {
+        if (!item || typeof item !== "object") return null;
+
+        const style = (item as { style?: unknown }).style;
+        const text = (item as { text?: unknown }).text;
+        if (typeof style !== "string" || !validStyles.has(style)) return null;
+        if (typeof text !== "string") return null;
+
+        const trimmedText = text.trim();
+        if (!trimmedText) return null;
+
+        return {
+          style: style as CaptionItem["style"],
+          text: trimmedText.slice(0, 120),
+        };
+      })
+      .filter((item): item is CaptionItem => Boolean(item))
+      .slice(0, 3);
   }
 
   private parsePickImagesResult(
@@ -1014,6 +1119,7 @@ export class AiService {
     inputTokens?: number;
     outputTokens?: number;
     errorMessage?: string;
+    metadata?: AiUsageMetadata;
   }) {
     return this.prisma.aiUsage.create({
       data: {
@@ -1027,19 +1133,74 @@ export class AiService {
         status: params.status,
         latencyMs: params.latencyMs,
         errorMessage: this.truncateErrorMessage(params.errorMessage),
+        metadata: params.metadata as Prisma.InputJsonValue | undefined,
       },
       select: { id: true },
     });
+  }
+
+  private createUsageMetadata(metadata: AiUsageMetadata) {
+    const normalized: AiUsageMetadata = {};
+    for (const [key, value] of Object.entries(metadata) as Array<
+      [keyof AiUsageMetadata, number | undefined]
+    >) {
+      if (typeof value === "number" && value > 0) {
+        normalized[key] = value;
+      }
+    }
+
+    return Object.keys(normalized).length > 0 ? normalized : undefined;
   }
 
   private async recordUsageSafely(
     params: Parameters<AiService["recordUsage"]>[0],
   ) {
     try {
-      await this.recordUsage(params);
+      return await this.recordUsage(params);
     } catch (error) {
       this.logger.error(
         `AI usage record failed requestId=${params.requestId} feature=${params.feature} status=${params.status} error=${this.formatErrorForLog(error)}`,
+      );
+      return null;
+    }
+  }
+
+  private async recordFailedUsageAndRefund(
+    params: Parameters<AiService["recordUsage"]>[0],
+  ) {
+    const usage = await this.recordUsageSafely(params);
+    await this.refundConsumedCreditSafely({
+      userId: params.userId,
+      feature: params.feature,
+      requestId: params.requestId,
+      aiUsageId: usage?.id,
+      errorMessage: params.errorMessage,
+    });
+  }
+
+  private async refundConsumedCreditSafely(params: {
+    userId: string;
+    feature: AiFeatureType;
+    requestId: string;
+    aiUsageId?: string;
+    errorMessage?: string;
+  }) {
+    try {
+      await this.quotaService.refundConsumedCredit(
+        params.userId,
+        params.feature,
+        {
+          requestId: params.requestId,
+          aiUsageId: params.aiUsageId,
+          metadata: {
+            requestId: params.requestId,
+            errorMessage: this.truncateErrorMessage(params.errorMessage),
+          },
+        },
+      );
+    } catch (error) {
+      this.logger.error(
+        `AI credit refund failed requestId=${params.requestId} feature=${params.feature} aiUsageId=${params.aiUsageId ?? ""} error=${this.formatErrorForLog(error)}`,
       );
     }
   }

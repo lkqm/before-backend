@@ -64,6 +64,67 @@ export class QuotaService {
     });
   }
 
+  async refundConsumedCredit(
+    userId: string,
+    feature: AiFeature,
+    options: {
+      aiUsageId?: string;
+      requestId: string;
+      metadata?: Prisma.InputJsonValue;
+    },
+  ) {
+    await this.authService.assertUser(userId);
+
+    const dedupeKey = `ai_refund:${options.aiUsageId ?? options.requestId}`;
+
+    return this.prisma.$transaction(async (tx) => {
+      const existingRefund = await tx.aiCreditLedger.findUnique({
+        where: { dedupeKey },
+        select: { id: true },
+      });
+      if (existingRefund) {
+        const account = await tx.aiCreditAccount.findUniqueOrThrow({
+          where: { userId },
+        });
+        return this.toQuotaResponse(account);
+      }
+
+      const refundResult = await tx.aiCreditAccount.updateMany({
+        where: {
+          userId,
+          totalUsed: { gt: 0 },
+        },
+        data: {
+          balance: { increment: 1 },
+          totalUsed: { decrement: 1 },
+        },
+      });
+
+      const updated = await tx.aiCreditAccount.findUniqueOrThrow({
+        where: { userId },
+      });
+
+      if (refundResult.count === 0) {
+        return this.toQuotaResponse(updated);
+      }
+
+      await tx.aiCreditLedger.create({
+        data: {
+          userId,
+          delta: 1,
+          balance: updated.balance,
+          reason: "ai_refund",
+          dedupeKey,
+          feature,
+          aiUsageId: options.aiUsageId,
+          metadata: options.metadata,
+        },
+      });
+
+      return this.toQuotaResponse(updated);
+    });
+  }
+
   private async ensureAccount(userId: string) {
     const existing = await this.prisma.aiCreditAccount.findUnique({
       where: { userId },
